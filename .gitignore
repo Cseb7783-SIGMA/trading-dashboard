@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+
+# Build outputs
+.next/
+.next-build/
+*.pyc
+
+# Environment files (SECRETS — NEVER COMMIT)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backup-*
+
+# OS
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,20 @@
+{
+  "id": "bb_rsi_mean_reversion",
+  "display_name": "BB+RSI Mean Reversion",
+  "description": "Retour à la moyenne par Bandes de Bollinger + confirmation divergence RSI, double timeframe",
+  "versions": ["V1", "V2", "V3", "V4", "V5", "V6", "V7"],
+  "name_patterns": ["bb_rsi", "mean_reversion", "bbrsiv", "_v1", "_v2", "_v3", "_v4", "_v5", "_v6", "_v7"],
+  "universes": ["ES", "NQ", "QQQ"],
+  "color": "#22C55E",
+  "thresholds": {
+    "pf_good": 1.5,
+    "pf_marginal": 1.2,
+    "dd_max_pct": -10.0,
+    "min_trades": 25
+  },
+  "prop_firm_rules": {
+    "daily_dd_pct": 5.0,
+    "total_dd_pct": 10.0,
+    "target_profit_pct": 8.0
+  }
+}

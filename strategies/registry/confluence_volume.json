@@ -1,0 +1,20 @@
+{
+  "id": "confluence_volume",
+  "display_name": "Confluence Volume & Order Flow",
+  "description": "5 signaux simultanés : VWAP, POC, pression acheteurs, imbalance ordres, zone horaire",
+  "versions": ["V8", "V9", "V10"],
+  "name_patterns": ["confluence", "order_flow", "_v8", "_v9", "_v10", "v8.", "v9.", "v10."],
+  "universes": ["ES", "NQ", "RTY"],
+  "color": "#1A5FD4",
+  "thresholds": {
+    "pf_good": 1.5,
+    "pf_marginal": 1.2,
+    "dd_max_pct": -10.0,
+    "min_trades": 30
+  },
+  "prop_firm_rules": {
+    "daily_dd_pct": 5.0,
+    "total_dd_pct": 10.0,
+    "target_profit_pct": 8.0
+  }
+}

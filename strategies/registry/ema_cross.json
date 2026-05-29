@@ -1,0 +1,20 @@
+{
+  "id": "ema_cross",
+  "display_name": "EMA Cross",
+  "description": "Baseline EMA cross 9/21 — référentiel interne de validation moteur",
+  "versions": ["V0"],
+  "name_patterns": ["ema_cross", "baseline_ema"],
+  "universes": ["ES", "BTC"],
+  "color": "#6B7280",
+  "thresholds": {
+    "pf_good": 1.5,
+    "pf_marginal": 1.2,
+    "dd_max_pct": -15.0,
+    "min_trades": 20
+  },
+  "prop_firm_rules": {
+    "daily_dd_pct": 5.0,
+    "total_dd_pct": 10.0,
+    "target_profit_pct": 8.0
+  }
+}

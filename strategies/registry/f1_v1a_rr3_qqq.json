@@ -1,0 +1,20 @@
+{
+  "id": "f1_v1a_rr3_qqq",
+  "display_name": "F1 V1.A RR 3.0 QQQ (Sweep+IFVG pur)",
+  "description": "F1 V1.A pattern racine (sweep + IFVG sans Two-Sting, sans EMA, sans range filter) avec RR 3.0. Best candidate volume S54 — 126 trades / 5 ans, PF train = PF OOS = 1.43 (edge stable), WF 4/6 no drift. Asset-specific QQQ.",
+  "versions": ["v1.A-RR3"],
+  "name_patterns": ["f1_v1a_rr3_qqq", "f1_v1_baseline_rr3"],
+  "universes": ["QQQ"],
+  "color": "#3B82F6",
+  "thresholds": {
+    "pf_good": 1.4,
+    "pf_marginal": 1.0,
+    "dd_max_pct": -25.0,
+    "min_trades": 50
+  },
+  "prop_firm_rules": {
+    "daily_dd_pct": 5.0,
+    "total_dd_pct": 10.0,
+    "target_profit_pct": 8.0
+  }
+}
