@@ -177,7 +177,21 @@ def delete_suggestion(run_id: str, suggestion_id: str):
 
 @app.post("/ai")
 async def ai_stream(request: AIRequest):
-    """SSE — réponse Claude en streaming avec contexte run injecté."""
+    """SSE — réponse Claude en streaming avec contexte run injecté.
+
+    ⚠️ DÉSACTIVÉ S55 : clé Anthropic API actuellement non disponible.
+    Réactiver quand clé personnelle (Anthropic console) sera créée.
+    """
+    import os
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    # Detect placeholder / missing / revoked keys
+    if not api_key or api_key.startswith("sk-ant-XXX") or len(api_key) < 50:
+        raise HTTPException(
+            status_code=503,
+            detail="Service IA temporairement indisponible : clé Anthropic API personnelle requise. "
+                   "Voir docs/setup_anthropic_api.md pour configuration."
+        )
+
     detail = read_run_detail(request.run_id)
     if not detail:
         raise HTTPException(status_code=404, detail=f"Run '{request.run_id}' introuvable")
@@ -320,4 +334,155 @@ def get_pine_script(run_id: str):
         "pine_code": pine_path.read_text(encoding="utf-8"),
         "file_size_bytes": pine_path.stat().st_size,
     }
+
+
+
+@app.get("/scout/sources")
+def get_scout_sources():
+    """Retourne le contenu de trading-lab/data/scout_sources.yaml."""
+    import yaml as _yaml
+
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    sources_path = trading_lab_root / "data" / "scout_sources.yaml"
+
+    if not sources_path.exists():
+        return {"available": False, "sources": [], "message": "Registry not found"}
+
+    try:
+        with open(sources_path) as f:
+            data = _yaml.safe_load(f)
+        sources = data.get("sources", [])
+        return {
+            "available": True,
+            "total": len(sources),
+            "active": sum(1 for s in sources if s.get("active", True)),
+            "sources": sources,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse registry: {e}")
+
+
+@app.get("/scout/inbox")
+def get_scout_inbox(status: str | None = None, source: str | None = None):
+    """Liste les items dans docs/scout/inbox/ (parsing markdown front-matter).
+
+    Query params :
+        - status : pending | flagged | ignored | snoozed
+        - source : filter by source name (slug)
+    """
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    inbox_dir = trading_lab_root / "docs" / "scout" / "inbox"
+
+    if not inbox_dir.exists():
+        return {"items": [], "total": 0, "message": "Inbox empty"}
+
+    items = []
+    for md_file in sorted(inbox_dir.glob("*.md"), reverse=True):
+        try:
+            text = md_file.read_text(encoding="utf-8")
+            lines = text.split("\n")
+            title = lines[0].lstrip("# ").strip() if lines else md_file.stem
+
+            def extract(field):
+                for line in lines:
+                    if f"**{field}**" in line:
+                        return line.split(":", 1)[-1].strip().lstrip("*").strip()
+                return ""
+
+            source_name = extract("Source")
+            url = extract("URL")
+            published = extract("Published")
+            weight = extract("Weight")
+            paradigms = extract("Paradigms (source)")
+            import re as _re_status
+            status_line = extract("Status")
+            m_status = _re_status.search(r"`(pending|flagged|ignored|snoozed|analyzed)`", status_line, _re_status.IGNORECASE)
+            if m_status:
+                item_status = m_status.group(1).lower()
+            else:
+                m_status = _re_status.search(r"\b(pending|flagged|ignored|snoozed|analyzed)\b", status_line, _re_status.IGNORECASE)
+                item_status = m_status.group(1).lower() if m_status else "pending"
+
+            score = None
+            for line in lines:
+                if "Score Scout" in line:
+                    import re as _re
+                    m = _re.search(r"(\d+)\s*/\s*6", line)
+                    if m:
+                        score = int(m.group(1))
+                    break
+
+            if status and item_status != status:
+                continue
+            if source and source.lower() not in source_name.lower():
+                continue
+
+            items.append({
+                "filename": md_file.name,
+                "title": title,
+                "source": source_name,
+                "url": url,
+                "published": published,
+                "weight": weight,
+                "paradigms": [p.strip() for p in paradigms.split(",") if p.strip()],
+                "status": item_status,
+                "score": score,
+                "size_bytes": md_file.stat().st_size,
+            })
+        except Exception:
+            continue
+
+    return {"items": items, "total": len(items)}
+
+
+@app.get("/scout/inbox/{filename}")
+def get_scout_inbox_item(filename: str):
+    """Retourne le contenu markdown complet d'un item d'inbox."""
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    item_path = trading_lab_root / "docs" / "scout" / "inbox" / filename
+
+    if not item_path.exists() or not item_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Item '{filename}' not found")
+
+    if not item_path.name.endswith(".md"):
+        raise HTTPException(status_code=400, detail="Only .md files allowed")
+
+    return {
+        "filename": filename,
+        "content": item_path.read_text(encoding="utf-8"),
+        "size_bytes": item_path.stat().st_size,
+    }
+
+
+@app.post("/scout/inbox/{filename}/status")
+def update_scout_item_status(filename: str, new_status: str):
+    """Update le status d'un item dans son markdown (`Status: X`).
+
+    new_status : pending | flagged | ignored | snoozed | analyzed
+    """
+    valid_statuses = {"pending", "flagged", "ignored", "snoozed", "analyzed"}
+    if new_status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {valid_statuses}")
+
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    item_path = trading_lab_root / "docs" / "scout" / "inbox" / filename
+
+    if not item_path.exists():
+        raise HTTPException(status_code=404, detail=f"Item '{filename}' not found")
+
+    content = item_path.read_text(encoding="utf-8")
+    import re as _re
+    new_content = _re.sub(
+        r"\*\*Status\*\*\s*:\s*`[^`]*`",
+        f"**Status** : `{new_status}`",
+        content,
+        count=1,
+    )
+    item_path.write_text(new_content, encoding="utf-8")
+
+    return {"filename": filename, "new_status": new_status, "success": True}
 

@@ -1,14 +1,15 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutList, Scale, Sparkles, BookOpen } from "lucide-react";
+import { LayoutList, Scale, Sparkles, BookOpen, Eye } from "lucide-react";
 import clsx from "clsx";
 
 const NAV = [
-  { href: "/",        label: "Overview",     Icon: LayoutList },
-  { href: "/compare", label: "Comparer",     Icon: Scale      },
-  { href: "/ai",      label: "Assistant IA", Icon: Sparkles   },
-  { href: "/journal", label: "Journal",      Icon: BookOpen   },
+  { href: "/",            label: "Overview",     Icon: LayoutList },
+  { href: "/compare",     label: "Comparer",     Icon: Scale      },
+  { href: "/ai",          label: "Assistant IA", Icon: Sparkles   },
+  { href: "/journal",     label: "Journal",      Icon: BookOpen   },
+  { href: "/scout-watch", label: "Scout Watch",  Icon: Eye        },
 ];
 
 export default function Sidebar() {
