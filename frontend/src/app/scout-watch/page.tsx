@@ -84,7 +84,7 @@ export default function ScoutWatchPage() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-text flex items-center gap-2">
@@ -132,26 +132,14 @@ export default function ScoutWatchPage() {
         </div>
       </div>
 
-      <div className="bg-surface border border-border rounded-lg p-4 mb-6 opacity-60">
+      <div className="bg-surface border border-border rounded-lg p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles size={16} className="text-purple-600" />
           <span className="font-medium text-sm">Quick Analyzer</span>
-          <span className="text-[11px] text-muted">— colle un lien YouTube ou texte, Claude évalue selon les 6 filtres Scout</span>
+          <span className="text-[11px] text-muted">— clique « Analyser » sur un item de l'inbox pour évaluation Claude</span>
         </div>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            disabled
-            placeholder="https://www.youtube.com/watch?v=... — désactivé : clé Anthropic API requise"
-            className="flex-1 text-xs"
-          />
-          <button disabled className="px-4 py-2 rounded bg-purple-600/20 text-purple-700 text-xs cursor-not-allowed flex items-center gap-1.5">
-            <Sparkles size={12} />
-            Analyser
-          </button>
-        </div>
-        <div className="mt-2 text-[11px] text-muted">
-          ⚠ Endpoint /scout/analyze inactif tant que la clé Anthropic API personnelle n'est pas configurée (planifié fin de semaine).
+        <div className="mt-1 text-[11px] text-green-600">
+          ✓ Clé Anthropic configurée · endpoint /scout/analyze actif
         </div>
       </div>
 
@@ -163,13 +151,19 @@ export default function ScoutWatchPage() {
               Inbox ({inbox.length})
             </div>
             <div className="flex gap-1.5 text-[11px]">
-              {["pending", "flagged", "snoozed", "ignored", "all"].map((s) => (
+              {[
+                { key: "pending",  label: "À traiter" },
+                { key: "flagged",  label: "Marqué"    },
+                { key: "snoozed",  label: "Reporté"   },
+                { key: "ignored",  label: "Ignoré"    },
+                { key: "all",      label: "Tous"      },
+              ].map((s) => (
                 <button
-                  key={s}
-                  onClick={() => setFilter(s)}
-                  className={`px-2.5 py-1 rounded ${filter === s ? "bg-blue/20 text-blue font-medium" : "bg-surface-hover text-muted hover:bg-border"}`}
+                  key={s.key}
+                  onClick={() => setFilter(s.key)}
+                  className={`px-2.5 py-1 rounded ${filter === s.key ? "bg-blue/20 text-blue font-medium" : "bg-surface-hover text-muted hover:bg-border"}`}
                 >
-                  {s}
+                  {s.label}
                 </button>
               ))}
             </div>
@@ -185,23 +179,21 @@ export default function ScoutWatchPage() {
             </div>
           )}
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {inbox.slice(0, 30).map((item) => (
-              <div key={item.filename} className="border border-border rounded p-3 hover:border-blue/40 transition-colors">
-                <div className="flex justify-between items-start gap-3 mb-2">
+              <div key={item.filename} className="border border-border rounded p-2.5 hover:border-blue/40 transition-colors">
+                <div className="flex justify-between items-start gap-3 mb-1">
                   <div className="flex-1 min-w-0">
                     <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:text-blue truncate block flex items-center gap-1">
                       {item.title}
                       <ExternalLink size={10} className="opacity-50 flex-shrink-0" />
                     </a>
                     <div className="text-[11px] text-muted mt-0.5">{item.source} · {item.published.substring(0, 10)}</div>
-                    <div className="flex gap-1 mt-1.5 flex-wrap">
-                      {item.paradigms.slice(0, 4).map((p) => (
-                        <span key={p} className="text-[9px] px-1.5 py-0.5 rounded bg-blue/10 text-blue border border-blue/20">{p}</span>
-                      ))}
-                    </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                    {item.paradigms.slice(0, 3).map((p) => (
+                      <span key={p} className="text-[9px] px-1.5 py-0.5 rounded bg-blue/10 text-blue border border-blue/20">{p}</span>
+                    ))}
                     <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
                       item.status === "flagged" ? "bg-green-100 text-green-800" :
                       item.status === "ignored" ? "bg-red-100 text-red-800" :
@@ -212,7 +204,25 @@ export default function ScoutWatchPage() {
                 </div>
 
                 {item.status === "pending" && (
-                  <div className="flex gap-1 mt-2 pt-2 border-t border-border">
+                  <div className="flex gap-1 mt-1.5 pt-1.5 border-t border-border">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+                          const res = await fetch(`${API_BASE}/scout/analyze/${encodeURIComponent(item.filename)}`, { method: "POST" });
+                          if (!res.ok) { alert("Erreur analyse : HTTP " + res.status); return; }
+                          const data = await res.json();
+                          const a = data.analysis || {};
+                          alert(`Score : ${a.score ?? "?"}/6 · ${a.classification ?? "?"}\n\nParadigmes : ${(a.paradigmes_detectes || []).join(", ") || "—"}\nFiltres : ${Object.entries(a.filters || {}).map(([k,v]) => `${k}=${v?"✓":"✗"}`).join(", ")}\n\nRésumé : ${a.summary ?? "—"}\n\nRecommandation : ${a.recommendation ?? "—"}\n\nCoût : $${(data.cost_estimate_usd ?? 0).toFixed(4)}`);
+                          loadData();
+                        } catch (e) {
+                          alert("Erreur : " + (e as Error).message);
+                        }
+                      }}
+                      className="text-[11px] px-2 py-0.5 rounded bg-purple-50 text-purple-700 hover:bg-purple-100 flex items-center gap-1"
+                    >
+                      <Sparkles size={10} /> Analyser
+                    </button>
                     <button onClick={() => updateStatus(item.filename, "flagged")} className="text-[11px] px-2 py-0.5 rounded bg-green-50 text-green-700 hover:bg-green-100 flex items-center gap-1">
                       <Flag size={10} /> Flag
                     </button>

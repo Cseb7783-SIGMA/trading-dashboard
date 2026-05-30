@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import LiveAgentCard from "@/components/agents/LiveAgentCard";
 import { Briefcase, Play, ChevronRight, Check, Search, X } from "lucide-react";
 
 type BrokerReadyStrategy = {
@@ -173,9 +174,7 @@ export default function PersonalBrokerPage() {
         <p className="text-[11px] text-muted px-1">
           Stratégies actuellement déployées sur ton compte IBKR avec capital réel alloué.
         </p>
-        <div className="bg-surface border border-border border-dashed rounded-lg p-5 text-center text-xs text-muted">
-          Aucune stratégie active actuellement. Configure et active une stratégie depuis « Broker Ready » ci-dessous.
-        </div>
+        <LiveAgentCard agentName="paper-trader" label="Paper Trader (LLM crypto)" color="green" />
       </section>
 
       {/* Broker Ready */}

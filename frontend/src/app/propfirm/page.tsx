@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import LiveAgentCard from "@/components/agents/LiveAgentCard";
 import { Building2, ChevronRight, Check, Search, X, Play } from "lucide-react";
 
 type PropfirmReadyStrategy = {
@@ -176,9 +177,7 @@ export default function PropFirmPage() {
         <p className="text-[11px] text-muted px-1">
           Stratégies actuellement déployées sur ton compte FTMO Challenge ou Funded.
         </p>
-        <div className="bg-surface border border-border border-dashed rounded-lg p-5 text-center text-xs text-muted">
-          Aucune stratégie active. Configure et active une stratégie depuis « PropFirm Ready » ci-dessous.
-        </div>
+        <LiveAgentCard agentName="propfirm-trader" label="PropFirm FTMO Agent" color="green" />
       </section>
 
       {/* PropFirm Ready */}
