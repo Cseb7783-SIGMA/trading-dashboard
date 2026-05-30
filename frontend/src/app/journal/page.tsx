@@ -21,7 +21,7 @@ export default function JournalPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-text">Journal de trading</h1>
-          <p className="text-xs text-muted mt-0.5">Personal Broker · PropFirm · Challenge Z — vue rapide multi-défis</p>
+          <p className="text-xs text-muted mt-0.5">Personal Broker · PropFirm · Challenge Z — vue rapide multi-destinations</p>
         </div>
         <div className="text-xs text-muted">MAJ : {today}</div>
       </div>
@@ -29,31 +29,31 @@ export default function JournalPage() {
       {/* KPI cards */}
       <JournalKPI />
 
-      {/* Vue d'ensemble par défi */}
+      {/* Vue d'ensemble par destination */}
       <div className="mb-2">
         <div className="flex items-center gap-2 text-sm font-medium text-text">
           <Target size={15} aria-hidden="true" />
-          Vue d'ensemble par défi
+          Vue d'ensemble par destination
         </div>
-        <p className="text-xs text-muted mt-0.5 mb-3">Snapshot rapide de chaque front</p>
+        <p className="text-xs text-muted mt-0.5 mb-3">Snapshot rapide de chaque destination</p>
       </div>
       <DefiCards />
 
-      {/* Résumé par stratégie */}
+      {/* Stratégies actives */}
       <div className="mb-2 mt-2">
         <div className="flex items-center gap-2 text-sm font-medium text-text">
           <BarChart3 size={15} aria-hidden="true" />
-          Résumé par stratégie
+          Stratégies actives
         </div>
         <p className="text-xs text-muted mt-0.5 mb-3">Une ligne par stratégie active</p>
       </div>
       <StrategySummary />
 
-      {/* Journal détaillé */}
+      {/* Détail des stratégies actives */}
       <div className="mb-2 mt-2">
         <div className="flex items-center gap-2 text-sm font-medium text-text">
           <ListFilter size={15} aria-hidden="true" />
-          Journal détaillé
+          Détail des stratégies actives
         </div>
         <p className="text-xs text-muted mt-0.5 mb-3">Une ligne par jour ouvré · SKIP inclus pour la discipline</p>
       </div>
