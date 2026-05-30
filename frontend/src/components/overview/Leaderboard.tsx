@@ -23,10 +23,26 @@ const COLS: { key: ColKey; label: string; tooltip: string; higherIsBetter: boole
 ];
 
 const SECTIONS: { id: string; label: string; emoji: string; color: string; desc: string; initialSort: ColKey }[] = [
-  { id: "propfirm",     label: "PropFirm Ready",        emoji: "🏛️", color: "text-green-400",  desc: "PF ≥ 1.5 · MaxDD ≤ 10% · Trades ≥ 100 · Prop ≥ 4/5 — éligible FTMO 100k$", initialSort: "prop" },
-  { id: "challenge_z",  label: "Challenge Z Compatible", emoji: "🎯", color: "text-amber-400",  desc: "Z Score ≥ 3/5 ET trades ≥ 50 — compatibilité TMAFX statistiquement crédible · trié par Z puis Trades", initialSort: "z_score" },
-  { id: "construction", label: "Atelier",                emoji: "🔨", color: "text-blue",       desc: "En cours d'investigation — pas encore PropFirm ni Challenge Z. Le Researcher Agent S50+ proposera des variantes pour améliorer ces stratégies.", initialSort: "score" },
+  { id: "in_paper_trade", label: "En Paper Trade",         emoji: "🧪", color: "text-blue",        desc: "Validation forward live — comparaison Backtest vs Paper en cours. Verdict après seuils Scalping (15 trades) / Swing (5 trades).", initialSort: "trades" },
+  { id: "broker_ready",   label: "Broker Ready",           emoji: "💼", color: "text-purple-400",  desc: "Tier STATISTICALLY_ROBUST · Paper confirmé · prêtes pour Personal Broker (compte perso, risk libre).", initialSort: "pf" },
+  { id: "propfirm",       label: "PropFirm Ready",         emoji: "🏛️", color: "text-green-400",   desc: "PF ≥ 1.5 · MaxDD ≤ 10% · Trades ≥ 100 · Prop ≥ 4/5 — éligible FTMO 100k$", initialSort: "prop" },
+  { id: "challenge_z",    label: "Challenge Z Compatible", emoji: "🎯", color: "text-amber-400",   desc: "Z Score ≥ 3/5 ET trades ≥ 50 — compatibilité TMAFX statistiquement crédible · trié par Z puis Trades", initialSort: "z_score" },
+  { id: "construction",   label: "R&D",                    emoji: "🔨", color: "text-blue",        desc: "En cours d'investigation — pas encore éligible destination. Le Researcher Agent S50+ proposera des variantes pour améliorer ces stratégies.", initialSort: "score" },
 ];
+
+// Mapping instrument → catégorie pour les filtres
+function categoryOf(instrument: string | undefined): string {
+  if (!instrument) return "Autre";
+  const i = instrument.toUpperCase().replace("=F", "");
+  if (["NQ","ES","RTY","YM","DJ","MNQ","MES","MYM","M2K"].includes(i)) return "Futures";
+  if (["CL","GC","SI","NG","HG","ZC","ZW","ZS","ZB","ZN","BRENT","WTI"].includes(i)) return "Commodities";
+  if (["QQQ","SPY","IWM","DIA","VTI","VOO","XLF","XLE","XLK","XLV","XLI","XLY","XLP","XLB","XLRE","XLU","XLC","TLT","GLD","SLV"].includes(i)) return "ETF";
+  if (i.startsWith("BTC") || i.startsWith("ETH") || i.endsWith("USDT") || i.endsWith("USDC")) return "Crypto";
+  if (/^[A-Z]{6}$/.test(i) && i.includes("USD") || /^(EUR|GBP|USD|JPY|AUD|NZD|CAD|CHF)/.test(i)) return "Forex";
+  return "Stocks";
+}
+
+const CATEGORY_FILTERS = ["Stocks", "ETF", "Futures", "Forex", "Crypto", "Commodities"];
 
 function getValue(run: Run, key: ColKey): number {
   const k = run.kpis;
@@ -95,6 +111,23 @@ const MEDAL: Record<number, { label: string; color: string }> = {
   3: { label: "3rd", color: "text-orange-400" },
 };
 
+function EmptySectionPlaceholder({ section }: { section: typeof SECTIONS[0] }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-3 px-1">
+        <h3 className={`text-base font-semibold ${section.color}`}>
+          {section.emoji} {section.label}
+        </h3>
+        <span className="text-xs text-muted">(aucune stratégie)</span>
+      </div>
+      <p className="text-[11px] text-muted px-1">{section.desc}</p>
+      <div className="bg-surface border border-border border-dashed rounded-lg p-6 text-center text-xs text-muted">
+        Aucune stratégie à ce stade pour l'instant. Elles apparaîtront quand elles atteindront ce niveau du pipeline.
+      </div>
+    </div>
+  );
+}
+
 function SectionPanel({
   section, runs, onRunClick,
 }: {
@@ -110,8 +143,6 @@ function SectionPanel({
   const tableRef = useRef<HTMLTableElement>(null);
   const [tableWidth, setTableWidth] = useState(0);
   const syncingRef = useRef(false);
-
-  if (runs.length === 0) return null;
 
   const handleSort = (key: ColKey) => {
     if (sortKey === key) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -243,12 +274,10 @@ function SectionPanel({
   );
 }
 
-const QUICK_FILTERS = ["NQ", "ES", "IWM", "CL", "BTCUSD", "EURUSD"];
-
 export default function Leaderboard({ runs }: { runs: Run[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [quickFilter, setQuickFilter] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
 
   if (!runs.length) {
     return (
@@ -261,10 +290,10 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
 
   const handleRunClick = (id: string) => router.push(`/strategy/${encodeURIComponent(id)}`);
 
-  // Filtre global : search + quick filter sur instrument
+  // Filtre global : search + category filter
   const q = query.trim().toLowerCase();
   const filteredRuns = runs.filter(r => {
-    if (quickFilter && r.universe?.instrument !== quickFilter) return false;
+    if (categoryFilter && categoryOf(r.universe?.instrument) !== categoryFilter) return false;
     if (!q) return true;
     const haystack = [
       r.strategy?.name ?? "",
@@ -276,7 +305,7 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
     return haystack.includes(q);
   });
 
-  const hasActiveFilter = q.length > 0 || quickFilter !== null;
+  const hasActiveFilter = q.length > 0 || categoryFilter !== null;
 
   return (
     <div className="space-y-4">
@@ -303,23 +332,23 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] text-muted uppercase tracking-wider mr-1">Univers :</span>
-          {QUICK_FILTERS.map(asset => (
+          <span className="text-[10px] text-muted uppercase tracking-wider mr-1">Catégorie :</span>
+          {CATEGORY_FILTERS.map(cat => (
             <button
-              key={asset}
-              onClick={() => setQuickFilter(quickFilter === asset ? null : asset)}
+              key={cat}
+              onClick={() => setCategoryFilter(categoryFilter === cat ? null : cat)}
               className={`text-xs px-2.5 py-1 rounded border transition-colors ${
-                quickFilter === asset
+                categoryFilter === cat
                   ? "bg-blue/15 border-blue/50 text-blue"
                   : "bg-ink border-border text-muted hover:text-text hover:border-border"
               }`}
             >
-              {asset}
+              {cat}
             </button>
           ))}
           {hasActiveFilter && (
             <button
-              onClick={() => { setQuery(""); setQuickFilter(null); }}
+              onClick={() => { setQuery(""); setCategoryFilter(null); }}
               className="text-[11px] text-muted hover:text-text underline ml-auto"
             >
               Effacer tous les filtres
@@ -330,6 +359,7 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
         {hasActiveFilter && (
           <div className="text-[11px] text-muted">
             <span className="text-text font-medium">{filteredRuns.length}</span> stratégie{filteredRuns.length > 1 ? "s" : ""} trouvée{filteredRuns.length > 1 ? "s" : ""} sur {runs.length} total
+            {categoryFilter && <span> · catégorie <span className="text-text font-medium">{categoryFilter}</span></span>}
           </div>
         )}
       </div>
@@ -339,12 +369,16 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
         {SECTIONS.map(section => {
           const sectionRuns = filteredRuns.filter(r => {
             const secs = r.kpis.sections ?? [];
-            // S46 : fusion Archives → Atelier. Anciennes runs taggées "abandoned" sont visibles dans Atelier.
+            // S46 : fusion Archives → Atelier
             if (section.id === "construction") return secs.includes("construction") || secs.includes("abandoned");
             return secs.includes(section.id);
           });
           // Si filtre actif et section vide, on la cache pour ne pas polluer
           if (hasActiveFilter && sectionRuns.length === 0) return null;
+          // Sans filtre actif : afficher placeholder pour sections vides (montre le pipeline complet)
+          if (sectionRuns.length === 0) {
+            return <EmptySectionPlaceholder key={section.id} section={section} />;
+          }
           return (
             <SectionPanel
               key={section.id}

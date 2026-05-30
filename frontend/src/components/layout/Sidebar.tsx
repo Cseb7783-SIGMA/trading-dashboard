@@ -1,22 +1,63 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutList, Scale, Sparkles, BookOpen, Eye } from "lucide-react";
+import {
+  LayoutList,
+  Scale,
+  Sparkles,
+  BookOpen,
+  Eye,
+  Briefcase,
+  Building2,
+  Trophy,
+  FlaskConical,
+} from "lucide-react";
 import clsx from "clsx";
 
-const NAV = [
-  { href: "/",            label: "Overview",     Icon: LayoutList },
-  { href: "/compare",     label: "Comparer",     Icon: Scale      },
-  { href: "/ai",          label: "Assistant IA", Icon: Sparkles   },
-  { href: "/journal",     label: "Journal",      Icon: BookOpen   },
-  { href: "/scout-watch", label: "Scout Watch",  Icon: Eye        },
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: typeof LayoutList;
+  badge?: string;
+};
+
+type NavGroup = {
+  title?: string;
+  items: NavItem[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    title: "Général",
+    items: [
+      { href: "/",        label: "Laboratoire",  Icon: LayoutList   },
+      { href: "/paper",   label: "Paper Trade",  Icon: FlaskConical },
+      { href: "/journal", label: "Journal",      Icon: BookOpen     },
+      { href: "/compare", label: "Comparer",     Icon: Scale        },
+    ],
+  },
+  {
+    title: "Destinations",
+    items: [
+      { href: "/personal-broker", label: "Personal Broker", Icon: Briefcase, badge: "NEW" },
+      { href: "/propfirm",        label: "PropFirm",        Icon: Building2 },
+      { href: "/challenge-z",     label: "Challenge Z",     Icon: Trophy    },
+    ],
+  },
+  {
+    title: "Recherche",
+    items: [
+      { href: "/ai",          label: "Assistant IA", Icon: Sparkles },
+      { href: "/scout-watch", label: "Scout Watch",  Icon: Eye      },
+    ],
+  },
 ];
 
 export default function Sidebar() {
   const path = usePathname();
 
   return (
-    <aside className="w-52 flex-shrink-0 bg-surface border-r border-border flex flex-col">
+    <aside className="w-56 flex-shrink-0 bg-surface border-r border-border flex flex-col">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-border">
         <div className="text-xs font-semibold tracking-widest text-blue uppercase mb-0.5">Trading Lab</div>
@@ -24,26 +65,40 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-3 space-y-1" aria-label="Navigation principale">
-        {NAV.map(({ href, label, Icon }) => {
-          const active = path === href || (href !== "/" && path.startsWith(href));
-          return (
-            <Link
-              key={href}
-              href={href}
-              aria-current={active ? "page" : undefined}
-              className={clsx(
-                "flex items-center gap-2.5 px-3 py-2 rounded text-sm transition-colors duration-150",
-                active
-                  ? "bg-blue/10 text-blue font-medium"
-                  : "text-muted hover:text-text hover:bg-ink"
-              )}
-            >
-              <Icon size={15} strokeWidth={active ? 2 : 1.5} aria-hidden="true" />
-              {label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 p-3 space-y-3 overflow-y-auto" aria-label="Navigation principale">
+        {NAV_GROUPS.map((group, gIdx) => (
+          <div key={gIdx} className="space-y-1">
+            {group.title && (
+              <div className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wider text-muted/70 uppercase">
+                {group.title}
+              </div>
+            )}
+            {group.items.map(({ href, label, Icon, badge }) => {
+              const active = path === href || (href !== "/" && path.startsWith(href));
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={clsx(
+                    "flex items-center gap-2.5 px-3 py-2 rounded text-sm transition-colors duration-150 relative",
+                    active
+                      ? "bg-blue/10 text-blue font-medium"
+                      : "text-muted hover:text-text hover:bg-ink"
+                  )}
+                >
+                  <Icon size={15} strokeWidth={active ? 2 : 1.5} aria-hidden="true" />
+                  <span className="flex-1">{label}</span>
+                  {badge && (
+                    <span className="text-[9px] font-semibold tracking-wider px-1.5 py-0.5 rounded bg-blue/20 text-blue uppercase">
+                      {badge}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}

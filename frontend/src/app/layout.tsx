@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Sidebar from "@/components/layout/Sidebar";
+import AIAssistantDrawer from "@/components/ai/AIAssistantDrawer";
 
 export const metadata: Metadata = {
   title: "Trading Lab",
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>
+        <AIAssistantDrawer />
       </body>
     </html>
   );

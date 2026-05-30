@@ -101,7 +101,7 @@ export const STRATEGY_SUMMARY: StrategyRow[] = [
 
 export const DEFI_SUMMARY = {
   paper: {
-    label: "Paper V10 IWM",
+    label: "Personal Broker",
     balance: 10000,
     pnl: 0,
     trades: 0,

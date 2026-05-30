@@ -1,0 +1,320 @@
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { FlaskConical, ChevronRight, Check, Clock, AlertTriangle, ArrowRight, Search, X } from "lucide-react";
+
+type PaperStrategy = {
+  id: string;
+  name: string;
+  version: string;
+  instrument: string;
+  timeframe: string;
+  style: "scalping" | "swing";
+  paperDays: number;
+  tradesPaper: number;
+  tradesRequired: number;
+  pf_backtest: number;
+  pf_paper: number | null;
+  pf_delta_pct: number | null;
+  wr_backtest: number;
+  wr_paper: number | null;
+  dd_backtest: number;
+  dd_paper: number | null;
+  status: "confirmed" | "in_progress" | "drift";
+};
+
+// Stratégies actuellement en Paper Trade
+// TODO: brancher sur backend /paper-runs (Phase 2 D-033)
+const PAPER_STRATEGIES: PaperStrategy[] = [
+  {
+    id: "2026-05-30T151816Z__f10_v1a_avwap_rr3_qqq_15m__s57",
+    name: "F10 V1A×AVWAP RR3",
+    version: "v1.A-RR3",
+    instrument: "QQQ", timeframe: "15m", style: "scalping",
+    paperDays: 12, tradesPaper: 9, tradesRequired: 15,
+    pf_backtest: 2.10, pf_paper: 1.95, pf_delta_pct: -7,
+    wr_backtest: 46.6, wr_paper: 44.4,
+    dd_backtest: -0.7, dd_paper: -1.1,
+    status: "confirmed",
+  },
+  {
+    id: "2026-05-30T151817Z__v1a_voldelta_rr3_qqq_15m__s57",
+    name: "V1A × VolDelta RR3",
+    version: "v1.A-VD",
+    instrument: "QQQ", timeframe: "15m", style: "scalping",
+    paperDays: 6, tradesPaper: 3, tradesRequired: 15,
+    pf_backtest: 1.66, pf_paper: null, pf_delta_pct: null,
+    wr_backtest: 48.0, wr_paper: null,
+    dd_backtest: -1.2, dd_paper: null,
+    status: "in_progress",
+  },
+  {
+    id: "2026-05-28T120000Z__f1_v1e_qqq_range__s53",
+    name: "F1 V1.E QQQ range AND",
+    version: "v1.E",
+    instrument: "QQQ", timeframe: "15m", style: "scalping",
+    paperDays: 28, tradesPaper: 8, tradesRequired: 15,
+    pf_backtest: 3.67, pf_paper: 0.85, pf_delta_pct: -77,
+    wr_backtest: 50.0, wr_paper: 25.0,
+    dd_backtest: -1.5, dd_paper: -3.8,
+    status: "drift",
+  },
+];
+
+const MEDAL: Record<number, { label: string; color: string }> = {
+  1: { label: "1st", color: "text-yellow-400" },
+  2: { label: "2nd", color: "text-slate-400"  },
+  3: { label: "3rd", color: "text-orange-400" },
+};
+
+function StatusBadge({ status }: { status: PaperStrategy["status"] }) {
+  if (status === "confirmed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-green-500/15 text-green-300 whitespace-nowrap">
+        <Check size={10} /> Confirmée
+      </span>
+    );
+  }
+  if (status === "in_progress") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-amber-500/15 text-amber-300 whitespace-nowrap">
+        <Clock size={10} /> En cours
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-red-500/15 text-red-300 whitespace-nowrap">
+      <AlertTriangle size={10} /> Drift
+    </span>
+  );
+}
+
+function ActionButton({ status, name }: { status: PaperStrategy["status"]; name: string }) {
+  if (status === "confirmed") {
+    return (
+      <button
+        onClick={() => alert(`Modal 'Transférer vers...' pour ${name} — à venir UX7`)}
+        className="text-xs font-medium px-2.5 py-1 rounded bg-blue/15 border border-blue/40 text-blue hover:bg-blue/25 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+      >
+        Transférer vers… <ArrowRight size={10} />
+      </button>
+    );
+  }
+  if (status === "drift") {
+    return (
+      <button
+        onClick={() => alert(`Pause + investiguer ${name} — à venir UX7`)}
+        className="text-xs font-medium px-2.5 py-1 rounded bg-red-500/15 border border-red-500/40 text-red-300 hover:bg-red-500/25 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+      >
+        Pause + investiguer <ArrowRight size={10} />
+      </button>
+    );
+  }
+  return (
+    <span className="text-[10px] text-muted italic">Sample en cours…</span>
+  );
+}
+
+export default function PaperTradePage() {
+  const [tab, setTab] = useState<"scalping" | "swing">("scalping");
+  const [query, setQuery] = useState("");
+
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (s: PaperStrategy) => {
+    if (!q) return true;
+    const hay = `${s.name} ${s.version} ${s.instrument} ${s.timeframe}`.toLowerCase();
+    return hay.includes(q);
+  };
+  const filtered = PAPER_STRATEGIES.filter((s) => s.style === tab && matchesQuery(s));
+  const counts = {
+    scalping: PAPER_STRATEGIES.filter((s) => s.style === "scalping" && matchesQuery(s)).length,
+    swing: PAPER_STRATEGIES.filter((s) => s.style === "swing" && matchesQuery(s)).length,
+  };
+
+  const stats = {
+    total: PAPER_STRATEGIES.length,
+    confirmed: PAPER_STRATEGIES.filter((s) => s.status === "confirmed").length,
+    inProgress: PAPER_STRATEGIES.filter((s) => s.status === "in_progress").length,
+    drift: PAPER_STRATEGIES.filter((s) => s.status === "drift").length,
+    totalTrades: PAPER_STRATEGIES.reduce((acc, s) => acc + s.tradesPaper, 0),
+  };
+
+  return (
+    <main className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Breadcrumb */}
+      <nav className="text-[11px] text-muted">
+        <Link href="/" className="text-blue hover:underline">Laboratoire</Link>
+        <ChevronRight size={11} className="inline mx-1 opacity-40" />
+        <span>Paper Trade</span>
+      </nav>
+
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-3 mb-1">
+          <FlaskConical size={22} className="text-blue" />
+          <h1 className="text-xl font-semibold">Paper Trade</h1>
+        </div>
+        <p className="text-xs text-muted mt-0.5">Validation forward live — est-ce que la réalité confirme le backtest ?</p>
+      </div>
+
+      {/* Stats cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-surface border border-border rounded-lg p-3">
+          <div className="text-[10px] text-muted uppercase tracking-wider mb-1">Stratégies en paper</div>
+          <div className="text-lg font-semibold">{stats.total}</div>
+          <div className="text-[10px] text-muted/70 mt-0.5">{stats.confirmed} confirmée · {stats.inProgress} en cours · {stats.drift} drift</div>
+        </div>
+        <div className="bg-surface border border-border rounded-lg p-3">
+          <div className="text-[10px] text-muted uppercase tracking-wider mb-1">Trades paper total</div>
+          <div className="text-lg font-semibold">{stats.totalTrades}</div>
+          <div className="text-[10px] text-muted/70 mt-0.5">depuis activation</div>
+        </div>
+        <div className="bg-surface border border-border rounded-lg p-3">
+          <div className="text-[10px] text-muted uppercase tracking-wider mb-1">P&L paper agrégé</div>
+          <div className="text-lg font-semibold text-green-400">+$248</div>
+          <div className="text-[10px] text-muted/70 mt-0.5">+2.5% sur $10k</div>
+        </div>
+        <div className="bg-surface border border-border rounded-lg p-3">
+          <div className="text-[10px] text-muted uppercase tracking-wider mb-1">Prêtes à transférer</div>
+          <div className="text-lg font-semibold">{stats.confirmed}</div>
+          <div className="text-[10px] text-muted/70 mt-0.5">F10 V1A×AVWAP</div>
+        </div>
+      </div>
+
+      {/* Recherche */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden="true" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Rechercher une stratégie (nom, version, asset, timeframe)…"
+          className="w-full bg-surface border border-border rounded-lg text-sm text-text pl-9 pr-9 py-2 focus:border-blue/60 focus:outline-none placeholder:text-muted"
+        />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-text p-1"
+            aria-label="Effacer la recherche"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Tabs Scalping / Swing */}
+      <div className="flex items-center gap-0 border-b border-border">
+        <button
+          onClick={() => setTab("scalping")}
+          className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${
+            tab === "scalping" ? "border-blue text-blue font-medium" : "border-transparent text-muted hover:text-text"
+          }`}
+        >
+          Scalping <span className="text-muted font-normal">({counts.scalping})</span>
+        </button>
+        <button
+          onClick={() => setTab("swing")}
+          className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${
+            tab === "swing" ? "border-blue text-blue font-medium" : "border-transparent text-muted hover:text-text"
+          }`}
+        >
+          Swing <span className="text-muted font-normal">({counts.swing})</span>
+        </button>
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <div className="bg-surface border border-border border-dashed rounded-lg p-8 text-center text-xs text-muted">
+          Aucune stratégie {tab === "scalping" ? "scalping" : "swing"} en paper actuellement.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface text-muted text-xs uppercase tracking-wider">
+                <th className="text-left px-4 py-3 w-10">#</th>
+                <th className="text-left px-4 py-3">Stratégie</th>
+                <th className="text-left px-4 py-3">Univers</th>
+                <th className="text-left px-4 py-3">Statut</th>
+                <th className="text-right px-4 py-3">PF BT</th>
+                <th className="text-right px-4 py-3">PF Paper</th>
+                <th className="text-right px-4 py-3">WR BT</th>
+                <th className="text-right px-4 py-3">WR Paper</th>
+                <th className="text-right px-4 py-3">DD BT</th>
+                <th className="text-right px-4 py-3">DD Paper</th>
+                <th className="text-right px-4 py-3">Sample</th>
+                <th className="text-right px-4 py-3">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s, idx) => {
+                const rank = idx + 1;
+                const deltaColor =
+                  s.pf_delta_pct === null ? "text-muted"
+                  : s.pf_delta_pct >= -20 ? "text-green-400"
+                  : s.pf_delta_pct >= -30 ? "text-amber-400"
+                  : "text-red-300";
+                return (
+                  <tr key={s.id} className="border-b border-border/50 hover:bg-ink transition-colors group">
+                    <td className="px-4 py-3 text-center">
+                      {MEDAL[rank]
+                        ? <span className={`text-xs font-semibold tabular-nums ${MEDAL[rank].color}`}>{MEDAL[rank].label}</span>
+                        : <span className="text-muted text-xs tabular-nums">{rank}</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link href={`/strategy/${encodeURIComponent(s.id)}`} className="block">
+                        <div className="font-medium group-hover:text-blue transition-colors">
+                          {s.name}
+                          <span className="ml-1.5 text-muted text-xs font-normal">{s.version}</span>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs font-semibold">{s.instrument}</span>
+                      <span className="ml-1 text-muted text-xs">{s.timeframe}</span>
+                    </td>
+                    <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
+                    <td className="px-4 py-3 text-right font-mono">{s.pf_backtest.toFixed(2)}</td>
+                    <td className={`px-4 py-3 text-right font-mono ${deltaColor}`}>
+                      {s.pf_paper !== null ? (
+                        <>
+                          {s.pf_paper.toFixed(2)}
+                          {s.pf_delta_pct !== null && (
+                            <span className="text-[10px] ml-1">({s.pf_delta_pct > 0 ? "+" : ""}{s.pf_delta_pct}%)</span>
+                          )}
+                        </>
+                      ) : <span className="text-muted">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{s.wr_backtest.toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <span className="text-muted">—</span>}</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.dd_backtest.toFixed(1)}%</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <span className="text-muted">—</span>}</td>
+                    <td className="px-4 py-3 text-right text-xs text-muted">
+                      {s.tradesPaper}/{s.tradesRequired}
+                      <div className="text-[10px] text-muted/70">{s.paperDays}j</div>
+                    </td>
+                    <td className="px-4 py-3 text-right"><ActionButton status={s.status} name={s.name} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Info footer */}
+      <div className="bg-surface border border-border rounded-lg p-3 text-[11px] text-muted leading-relaxed space-y-1">
+        <div>
+          ℹ️ <span className="text-text font-medium">Verdicts automatiques (Scalping)</span> :
+          Confirmée si delta PF ≥ −20% · En cours si sample &lt; 15 trades · Drift si delta PF ≤ −30%.
+        </div>
+        <div>
+          <span className="text-text font-medium">Transfert ≠ Activation</span> :
+          « Transférer vers… » place la stratégie dans Broker Ready / PropFirm Ready / Challenge Z.
+          L'activation finale se fait dans la page de destination (humain confirme capital + risk + asset).
+        </div>
+      </div>
+    </main>
+  );
+}

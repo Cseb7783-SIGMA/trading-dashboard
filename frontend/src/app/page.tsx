@@ -11,8 +11,8 @@ export default function OverviewPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-text">Vue d'ensemble</h1>
-          <p className="text-xs text-muted mt-0.5">Toutes les stratégies · tous univers</p>
+          <h1 className="text-xl font-semibold text-text">Laboratoire</h1>
+          <p className="text-xs text-muted mt-0.5">Évolution des stratégies — toutes catégories</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">
           {streamStatus === "connected"  && <Wifi size={13} className="text-green-400" aria-label="Stream connecté" />}

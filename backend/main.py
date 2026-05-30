@@ -486,3 +486,89 @@ def update_scout_item_status(filename: str, new_status: str):
 
     return {"filename": filename, "new_status": new_status, "success": True}
 
+
+
+# ── Scout Quick Analyzer (T-38 — auto-screening via Claude Haiku) ──────────
+
+@app.post("/scout/analyze/{filename}")
+def scout_analyze_item(filename: str):
+    """Analyse un item inbox Scout via Claude Haiku (Quick Analyzer T-38).
+
+    Output : score 0-6 par les 6 filtres Scout + classification priority/maybe/skip.
+    Coût estimé : ~$0.0001 par item (Haiku 4.5).
+    """
+    import os
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key or api_key.startswith("sk-ant-XXX") or len(api_key) < 50:
+        raise HTTPException(
+            status_code=503,
+            detail="Service IA indisponible : clé Anthropic API personnelle requise."
+        )
+
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    item_path = trading_lab_root / "docs" / "scout" / "inbox" / filename
+    if not item_path.exists() or not item_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Item '{filename}' not found")
+
+    content = item_path.read_text(encoding="utf-8")
+
+    try:
+        import anthropic
+    except ImportError:
+        raise HTTPException(status_code=500, detail="anthropic module not installed in backend env")
+
+    system_prompt = """Tu es un Scout Agent Quick Analyzer pour Trading Lab.
+Analyse un item d'inbox (vidéo YouTube trading) selon 6 filtres :
+1. Date méthodologie ≥ 2022 (pas pre-2015)
+2. RR ≥ 1:2 supporté
+3. Paradigme moderne (ICT/SMC/Order Flow/Volume Profile/Liquidity)
+4. Données pipeline D-025 compatibles (15min OHLCV TwelveData)
+5. Python Ionita implémentable
+6. Trader-réel applicability + use case fidelity
+
+Extension Filter #2 : évalue le CONTENU publié, jamais l'auteur historique.
+
+Output JSON strict :
+{
+  "score": 0-6 (somme filtres passés),
+  "classification": "priority" | "maybe" | "skip",
+  "paradigmes_detectes": [string],
+  "filters": {"date": bool, "rr": bool, "paradigme": bool, "data": bool, "python": bool, "applicability": bool},
+  "summary": "1-2 phrases résumé contenu",
+  "recommendation": "1 phrase : flag pour charter / snooze / ignore + raison"
+}
+
+Classification :
+- priority (score ≥ 5) : à reviewer rapidement
+- maybe (score 3-4) : à reviewer si temps
+- skip (score ≤ 2) : archiver sans review"""
+
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1024,
+        system=system_prompt,
+        messages=[{"role": "user", "content": f"Item inbox à analyser :\n\n{content[:3000]}"}],
+    )
+
+    response_text = msg.content[0].text
+
+    # Parse JSON from response
+    import json as _json
+    import re as _re
+    json_match = _re.search(r"\{[\s\S]*\}", response_text)
+    if json_match:
+        try:
+            analysis = _json.loads(json_match.group(0))
+        except _json.JSONDecodeError:
+            analysis = {"raw_response": response_text, "parse_error": True}
+    else:
+        analysis = {"raw_response": response_text, "parse_error": True}
+
+    return {
+        "filename": filename,
+        "analysis": analysis,
+        "cost_estimate_usd": (msg.usage.input_tokens * 1e-6 + msg.usage.output_tokens * 5e-6),
+        "tokens": {"input": msg.usage.input_tokens, "output": msg.usage.output_tokens},
+    }

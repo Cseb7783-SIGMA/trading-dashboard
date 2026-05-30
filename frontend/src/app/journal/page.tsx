@@ -1,4 +1,5 @@
-import { Target, BarChart3, ListFilter } from "lucide-react";
+import Link from "next/link";
+import { Target, BarChart3, ListFilter, ChevronRight } from "lucide-react";
 import JournalKPI from "@/components/journal/JournalKPI";
 import DefiCards from "@/components/journal/DefiCards";
 import StrategySummary from "@/components/journal/StrategySummary";
@@ -9,11 +10,18 @@ export default function JournalPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {/* Breadcrumb */}
+      <nav className="text-[11px] text-muted mb-2">
+        <Link href="/" className="text-blue hover:underline">Laboratoire</Link>
+        <ChevronRight size={11} className="inline mx-1 opacity-40" />
+        <span>Journal</span>
+      </nav>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-text">Journal de trading</h1>
-          <p className="text-xs text-muted mt-0.5">Paper · PropFirm · Challenge Z — vue rapide multi-défis</p>
+          <p className="text-xs text-muted mt-0.5">Personal Broker · PropFirm · Challenge Z — vue rapide multi-défis</p>
         </div>
         <div className="text-xs text-muted">MAJ : {today}</div>
       </div>

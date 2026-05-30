@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { fetchRuns, fetchRun } from "@/lib/api";
 import type { Run, RunDetail } from "@/lib/types";
 import OverlayEquity from "@/components/compare/OverlayEquity";
@@ -11,7 +13,7 @@ const MAX_SELECT = 5;
 const SECTIONS = [
   { id: "propfirm",     label: "PropFirm Ready",        emoji: "🏛️", color: "text-green-400" },
   { id: "challenge_z",  label: "Challenge Z Compatible", emoji: "🎯", color: "text-amber-400" },
-  { id: "construction", label: "Atelier",           emoji: "🔨", color: "text-blue" },
+  { id: "construction", label: "R&D",               emoji: "🔨", color: "text-blue" },
 ];
 
 export default function ComparePage() {
@@ -101,6 +103,13 @@ export default function ComparePage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {/* Breadcrumb */}
+      <nav className="text-[11px] text-muted mb-2">
+        <Link href="/" className="text-blue hover:underline">Laboratoire</Link>
+        <ChevronRight size={11} className="inline mx-1 opacity-40" />
+        <span>Comparer</span>
+      </nav>
+
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>
