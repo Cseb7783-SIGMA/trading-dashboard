@@ -1,22 +1,23 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
-        // Light mode palette — S46
-        bg:      "#FAFAFA",
-        surface: "#FFFFFF",
-        ink:     "#F4F4F5",
-        border:  "#E5E5E5",
-        blue:    "#1A5FD4",
-        green:   "#16A34A",
-        red:     "#DC2626",
-        orange:  "#EA580C",
-        text:    "#1A1A1A",
-        text2:   "#525252",
-        muted:   "#737373",
+        // CSS variables — auto-switch light/dark via .dark class on <html>
+        bg:      "var(--bg)",
+        surface: "var(--surface)",
+        ink:     "var(--ink)",
+        border:  "var(--border)",
+        blue:    "var(--blue)",
+        green:   "var(--green)",
+        red:     "var(--red)",
+        orange:  "var(--orange)",
+        text:    "var(--text)",
+        text2:   "var(--text-2)",
+        muted:   "var(--muted)",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],

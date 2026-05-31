@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import LiveAgentCard from "@/components/agents/LiveAgentCard";
 import { Trophy, ChevronRight, Check, Search, X, Play } from "lucide-react";
 
 type ChallengeZStrategy = {
@@ -177,7 +176,9 @@ export default function ChallengeZPage() {
         <p className="text-[11px] text-muted px-1">
           Stratégies actuellement déployées sur ton Climb TMAFX en cours.
         </p>
-        <LiveAgentCard agentName="challenge-z-trader" label="Challenge Z TMAFX Agent" color="amber" />
+        <div className="bg-surface border border-border border-dashed rounded-lg p-5 text-center text-xs text-muted">
+          Aucune stratégie active. Configure et active une stratégie depuis « Challenge Z Compatible » ci-dessous.
+        </div>
       </section>
 
       {/* Challenge Z Compatible */}

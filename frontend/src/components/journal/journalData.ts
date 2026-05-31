@@ -30,88 +30,14 @@ export type JournalEntry = {
   notes: string;
 };
 
-// JOURNAL_ENTRIES : contient TOUS les checks quotidiens (SKIPs + trades)
-// Utilisé pour calculer les stats globales et le résumé par stratégie.
-// Pour la table détaillée trade-centric, on filtre sur statut ≠ SKIP.
-export const JOURNAL_ENTRIES: JournalEntry[] = [
-  {
-    date: "2026-05-19", strategie: "V10 IWM", defi: "Paper", asset: "IWM",
-    timeframe: "D", direction: "—", capital: 10000, riskPct: 0.5, riskDollar: 50,
-    entry: null, stop: null, exit: null, statut: "SKIP",
-    pnl: 0, rMultiple: null, balance: 10000,
-    notes: "VIX OK (18.06), BB pas touché — RSI 46.67 hors zone",
-  },
-  {
-    date: "2026-05-20", strategie: "V10 IWM", defi: "Paper", asset: "IWM",
-    timeframe: "D", direction: "—", capital: 10000, riskPct: 0.5, riskDollar: 50,
-    entry: null, stop: null, exit: null, statut: "SKIP",
-    pnl: 0, rMultiple: null, balance: 10000,
-    notes: "VIX 17.44, RSI 55.38 hors zone",
-  },
-  {
-    date: "2026-05-21", strategie: "V10 IWM", defi: "Paper", asset: "IWM",
-    timeframe: "D", direction: "—", capital: 10000, riskPct: 0.5, riskDollar: 50,
-    entry: null, stop: null, exit: null, statut: "SKIP",
-    pnl: 0, rMultiple: null, balance: 10000,
-    notes: "IWM monte (283.05), RSI 58.75 hors zone",
-  },
-  {
-    date: "2026-05-22", strategie: "V10 IWM", defi: "Paper", asset: "IWM",
-    timeframe: "D", direction: "—", capital: 10000, riskPct: 0.5, riskDollar: 50,
-    entry: null, stop: null, exit: null, statut: "SKIP",
-    pnl: 0, rMultiple: null, balance: 10000,
-    notes: "IWM continue montée (283.96), RSI 59.72",
-  },
-  // Quand un trade s'enclenchera, on aura une entrée comme celle-ci :
-  // {
-  //   date: "2026-06-15",      ← date d'entrée
-  //   exitDate: "2026-06-22",  ← rempli à la sortie
-  //   strategie: "V10 IWM", defi: "Paper", asset: "IWM",
-  //   timeframe: "D", direction: "LONG", capital: 10000, riskPct: 0.5, riskDollar: 50,
-  //   entry: 271.50, stop: 259.25, exit: 279.80,
-  //   statut: "W", pnl: 34.00, rMultiple: 0.68, balance: 10034,
-  //   notes: "TP atteint J+5 (close > BB_mid 280.10)",
-  // },
-];
-
-export type StrategyRow = {
-  strategie: string;
-  asset: string;
-  timeframe: string;
-  defi: "Paper" | "PropFirm" | "Challenge Z";
-  joursActifs: number;
-  signaux: number;
-  trades: number;
-  wins: number;
-  losses: number;
-  be: number;
-  winRate: number | null;
-  pnlNet: number;
-  balance: number;
-};
-
-export const STRATEGY_SUMMARY: StrategyRow[] = [
-  {
-    strategie: "V10 IWM", asset: "IWM", timeframe: "D", defi: "Paper",
-    joursActifs: 4, signaux: 4, trades: 0,
-    wins: 0, losses: 0, be: 0,
-    winRate: null, pnlNet: 0, balance: 10000,
-  },
-];
+// JOURNAL_ENTRIES : entries quotidiennes (SKIPs + trades)
+// Clean state S59 — V10 IWM mock retiré. Sera repopulé Phase 3 (D-001 v2 paper natif).
+export const JOURNAL_ENTRIES: JournalEntry[] = [];
 
 export const DEFI_SUMMARY = {
   paper: {
     label: "Personal Broker",
-    balance: 10000,
-    pnl: 0,
-    trades: 0,
-    wins: 0, losses: 0, be: 0,
-    skips: 4,
-    signaux: 4,
-    winRate: null as number | null,
-    streak: "—",
-    maxDD: 0,
-    active: true,
+    active: false,
   },
   propfirm: {
     label: "PropFirm",
@@ -122,3 +48,21 @@ export const DEFI_SUMMARY = {
     active: false,
   },
 };
+
+// STRATEGY_SUMMARY : résumé par stratégie active
+// Clean state S59 — vide jusqu'à Phase 3 (paper natif active)
+export const STRATEGY_SUMMARY: Array<{
+  strategie: string;
+  asset: string;
+  timeframe: string;
+  defi: "Personal Broker" | "PropFirm" | "Challenge Z";
+  jours: number;
+  signaux: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  be: number;
+  winRate: number | null;
+  pnl: number;
+  balance: number;
+}> = [];

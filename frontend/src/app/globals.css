@@ -18,6 +18,21 @@
   --text-2:  #525252;
   --muted:   #737373;
 }
+/* Dark mode palette — S59 (toggle via class .dark sur <html>) */
+html.dark {
+  --bg:      #0A0A0A;
+  --surface: #18181B;
+  --ink:     #27272A;
+  --border:  #3F3F46;
+  --blue:    #60A5FA;
+  --green:   #34D399;
+  --red:     #F87171;
+  --orange:  #FB923C;
+  --text:    #F4F4F5;
+  --text-2:  #D4D4D8;
+  --muted:   #A1A1AA;
+}
+
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 

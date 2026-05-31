@@ -11,8 +11,11 @@ import {
   Building2,
   Trophy,
   FlaskConical,
+  Activity,
+  Layers,
 } from "lucide-react";
 import clsx from "clsx";
+import ThemeToggle from "./ThemeToggle";
 
 type NavItem = {
   href: string;
@@ -45,10 +48,23 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    title: "Auto-Trading",
+    items: [
+      { href: "/multi-strategies", label: "Multi-Stratégies", Icon: Layers,   badge: "SOON" },
+      { href: "/live-agents",      label: "Agents LLM",       Icon: Activity },
+    ],
+  },
+  {
     title: "Recherche",
     items: [
       { href: "/ai",          label: "Assistant IA", Icon: Sparkles },
       { href: "/scout-watch", label: "Scout Watch",  Icon: Eye      },
+    ],
+  },
+  {
+    title: "Opérations",
+    items: [
+      { href: "/usage-claude", label: "Usage Claude", Icon: Sparkles, badge: "NEW" },
     ],
   },
 ];
@@ -100,6 +116,11 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
+
+      {/* Theme toggle */}
+      <div className="px-3 py-2 border-t border-border">
+        <ThemeToggle />
+      </div>
 
       {/* Footer */}
       <div className="p-4 border-t border-border">
