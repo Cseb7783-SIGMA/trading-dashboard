@@ -24,6 +24,7 @@ export interface D033Eligibility {
 }
 
 export interface D033 {
+  style?: "scalping" | "swing";
   tier_davey: "STATISTICALLY_ROBUST" | "HIGH" | "MEDIUM" | "LOW" | "Archive";
   deployment_stage: "rd" | "backtest_validated" | "paper" | "broker" | "propfirm" | "challenge_z";
   eligibility: D033Eligibility;

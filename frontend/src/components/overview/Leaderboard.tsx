@@ -313,6 +313,7 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [period, setPeriod] = useState<"all_time" | "12m" | "6m" | "3m" | "1m">("all_time");
+  const [styleFilter, setStyleFilter] = useState<"all" | "scalping" | "swing">("all");
 
   if (!runs.length) {
     return (
@@ -328,6 +329,15 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
   // Filtre global : search + category filter
   const q = query.trim().toLowerCase();
   const filteredRuns = runs.filter(r => {
+    if (styleFilter !== "all") {
+      const style = r.d033?.style;
+      if (!style && styleFilter === "scalping") {
+        // Si style absent, déduire du TF
+        const tf = (r.universe?.timeframe || "").toLowerCase();
+        if (tf.endsWith("h") || tf.endsWith("d") || tf.endsWith("w")) return false;
+      }
+      if (style && style !== styleFilter) return false;
+    }
     if (categoryFilter && categoryOf(r.universe?.instrument) !== categoryFilter) return false;
     if (!q) return true;
     const haystack = [
@@ -397,6 +407,31 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
             {categoryFilter && <span> · catégorie <span className="text-text font-medium">{categoryFilter}</span></span>}
           </div>
         )}
+      </div>
+
+      {/* Onglets Style Scalping/Swing (S59) */}
+      <div className="flex items-center gap-0 border-b border-border">
+        {(["all", "scalping", "swing"] as const).map((s) => {
+          const count = s === "all" ? runs.length : runs.filter(r => {
+            const style = r.d033?.style;
+            if (style) return style === s;
+            const tf = (r.universe?.timeframe || "").toLowerCase();
+            const isSwing = tf.endsWith("h") || tf.endsWith("d") || tf.endsWith("w");
+            return s === "swing" ? isSwing : !isSwing;
+          }).length;
+          const label = s === "all" ? "Toutes" : s === "scalping" ? "Scalping" : "Swing";
+          return (
+            <button
+              key={s}
+              onClick={() => setStyleFilter(s)}
+              className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${
+                styleFilter === s ? "border-blue text-blue font-medium" : "border-transparent text-muted hover:text-text"
+              }`}
+            >
+              {label} <span className="text-muted font-normal">({count})</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Toggle période D-033 */}
