@@ -1,7 +1,7 @@
 """Pydantic models — Trading Dashboard API."""
 from __future__ import annotations
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StrategyInfo(BaseModel):
@@ -14,6 +14,27 @@ class UniverseInfo(BaseModel):
     instrument: str
     timeframe: str
     type: str
+
+
+class KPIsPeriod(BaseModel):
+    """KPIs pour une fenêtre temporelle (1m/3m/6m/12m/all_time)."""
+    pf: float | None = None
+    wr: float | None = None
+    trades: int = 0
+    pnl: float = 0.0
+    dd_pct: float = 0.0
+
+
+class KPIsByPeriod(BaseModel):
+    """KPIs par fenêtre — drift detection."""
+    m1: KPIsPeriod | None = Field(None, alias="1m")
+    m3: KPIsPeriod | None = Field(None, alias="3m")
+    m6: KPIsPeriod | None = Field(None, alias="6m")
+    m12: KPIsPeriod | None = Field(None, alias="12m")
+    all_time: KPIsPeriod | None = None
+
+    class Config:
+        populate_by_name = True
 
 
 class D033Eligibility(BaseModel):
@@ -62,6 +83,8 @@ class RunSummary(BaseModel):
     notes: Optional[str] = None
     kpis: KPIs
     d033: D033 = D033()
+    kpis_by_period: dict = {}
+    drift_status: str = "n/a"
 
 
 class Trade(BaseModel):

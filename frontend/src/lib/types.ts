@@ -1,4 +1,21 @@
 
+
+export interface KPIsPeriod {
+  pf: number | null;
+  wr: number | null;
+  trades: number;
+  pnl: number;
+  dd_pct: number;
+}
+
+export interface KPIsByPeriod {
+  "1m"?: KPIsPeriod;
+  "3m"?: KPIsPeriod;
+  "6m"?: KPIsPeriod;
+  "12m"?: KPIsPeriod;
+  all_time?: KPIsPeriod;
+}
+
 export interface D033Eligibility {
   paper: "yes" | "borderline" | "no";
   personal_broker: "yes" | "borderline" | "no";
@@ -55,6 +72,8 @@ export interface Run {
   notes?: string;
   kpis: KPIs;
   d033?: D033;
+  kpis_by_period?: KPIsByPeriod;
+  drift_status?: "stable" | "warning" | "critical" | "n/a";
 }
 
 export interface Trade {

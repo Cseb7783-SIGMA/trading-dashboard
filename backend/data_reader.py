@@ -236,6 +236,8 @@ def _parse_run(run_dir: Path) -> Optional[RunSummary]:
             notes=meta.get("notes"),
             kpis=_parse_kpis(meta, kpis_raw),
         d033=_parse_d033(meta),
+        kpis_by_period=meta.get("kpis_by_period", {}),
+        drift_status=meta.get("drift_status", "n/a"),
         )
     except Exception:
         return None

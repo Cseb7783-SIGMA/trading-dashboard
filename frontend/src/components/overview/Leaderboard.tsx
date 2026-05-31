@@ -102,6 +102,29 @@ function ZCell({ z, trades }: { z: number; trades: number }) {
   );
 }
 
+
+// D-033 + Period KPIs : extrait les KPIs selon la période sélectionnée
+function getKpisForPeriod(run: Run, period: "all_time" | "12m" | "6m" | "3m" | "1m") {
+  const periodMap: Record<string, keyof NonNullable<Run["kpis_by_period"]>> = {
+    "1m": "1m", "3m": "3m", "6m": "6m", "12m": "12m", "all_time": "all_time"
+  };
+  const periodKpis = run.kpis_by_period?.[periodMap[period]];
+  if (period === "all_time" || !periodKpis) {
+    return {
+      pf: run.kpis.profit_factor,
+      wr: run.kpis.win_rate,
+      trades: run.kpis.total_trades,
+      dd: run.kpis.max_drawdown_pct,
+    };
+  }
+  return {
+    pf: periodKpis.pf ?? 0,
+    wr: periodKpis.wr ?? 0,
+    trades: periodKpis.trades,
+    dd: periodKpis.dd_pct,
+  };
+}
+
 const MEDAL: Record<number, { label: string; color: string }> = {
   1: { label: "1st", color: "text-yellow-400" },
   2: { label: "2nd", color: "text-slate-400"  },
@@ -126,11 +149,12 @@ function EmptySectionPlaceholder({ section }: { section: typeof SECTIONS[0] }) {
 }
 
 function SectionPanel({
-  section, runs, onRunClick,
+  section, runs, onRunClick, period,
 }: {
   section: typeof SECTIONS[0];
   runs: Run[];
   onRunClick: (id: string) => void;
+  period: "all_time" | "12m" | "6m" | "3m" | "1m";
 }) {
   const [sortKey, setSortKey] = useState<ColKey>(section.initialSort);
   const [sortDir, setSortDir] = useState<Dir>("desc");
@@ -227,6 +251,7 @@ function SectionPanel({
           <tbody>
             {sorted.map((run, idx) => {
               const k = run.kpis;
+              const kp = getKpisForPeriod(run, period);
               const rank = idx + 1;
               return (
                 <tr
@@ -244,6 +269,9 @@ function SectionPanel({
                     <div className="font-medium group-hover:text-blue transition-colors">
                       {run.strategy.name}
                       <span className="ml-1.5 text-muted text-xs font-normal">{run.strategy.version}</span>
+                      {run.drift_status === "critical" && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">⚠ drift</span>}
+                      {run.drift_status === "warning" && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">⚠ attention</span>}
+                      {run.drift_status === "stable" && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">✓ stable</span>}
                     </div>
                     {run.d033?.eligibility && (
                       <div className="flex gap-1 mt-1 flex-wrap">
@@ -261,11 +289,11 @@ function SectionPanel({
                     <span className="text-xs font-semibold">{run.universe.instrument}</span>
                     <span className="ml-1 text-muted text-xs">{run.universe.timeframe}</span>
                   </td>
-                  <td className={`px-4 py-3 text-right font-mono font-semibold ${colorClass(pfColor(k.profit_factor))}`}>{k.profit_factor.toFixed(2)}</td>
-                  <td className={`px-4 py-3 text-right font-mono ${colorClass(ddColor(k.max_drawdown_pct))}`}>{k.max_drawdown_pct.toFixed(1)}%</td>
+                  <td className={`px-4 py-3 text-right font-mono font-semibold ${colorClass(pfColor(kp.pf))}`}>{kp.pf.toFixed(2)}</td>
+                  <td className={`px-4 py-3 text-right font-mono ${colorClass(ddColor(kp.dd))}`}>{kp.dd.toFixed(1)}%</td>
                   <td className={`px-4 py-3 text-right font-mono ${colorClass(sharpeColor(k.sharpe_ratio))}`}>{k.sharpe_ratio.toFixed(2)}</td>
-                  <td className={`px-4 py-3 text-right font-mono ${colorClass(wrColor(k.win_rate))}`}>{k.win_rate.toFixed(1)}%</td>
-                  <td className={`px-4 py-3 text-right font-mono ${colorClass(tradesColor(k.total_trades))}`}>{k.total_trades}</td>
+                  <td className={`px-4 py-3 text-right font-mono ${colorClass(wrColor(kp.wr))}`}>{kp.wr.toFixed(1)}%</td>
+                  <td className={`px-4 py-3 text-right font-mono ${colorClass(tradesColor(kp.trades))}`}>{kp.trades}</td>
                   <td className="px-4 py-3 text-right font-mono">{k.max_consec_wins}</td>
                   <td className="px-4 py-3 text-right font-mono">{k.max_consec_losses}</td>
                   <td className="px-4 py-3 text-right"><span className="font-semibold text-blue">{k.composite_score}</span></td>
@@ -284,6 +312,7 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [period, setPeriod] = useState<"all_time" | "12m" | "6m" | "3m" | "1m">("all_time");
 
   if (!runs.length) {
     return (
@@ -370,6 +399,29 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
         )}
       </div>
 
+      {/* Toggle période D-033 */}
+      <div className="flex items-center gap-2 px-1">
+        <span className="text-[11px] text-muted uppercase tracking-wider">Période :</span>
+        {(["all_time", "12m", "6m", "3m", "1m"] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+              period === p
+                ? "bg-blue/15 border-blue/50 text-blue"
+                : "bg-ink border-border text-muted hover:text-text"
+            }`}
+          >
+            {p === "all_time" ? "All-time" : p}
+          </button>
+        ))}
+        {period !== "all_time" && (
+          <span className="text-[10px] text-amber-400 ml-2">
+            ⚠ KPIs recalculés sur fenêtre {period}
+          </span>
+        )}
+      </div>
+
       {/* Sections */}
       <div className="space-y-8">
         {SECTIONS.map(section => {
@@ -390,6 +442,7 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
               section={section}
               runs={sectionRuns}
               onRunClick={handleRunClick}
+              period={period}
             />
           );
         })}
