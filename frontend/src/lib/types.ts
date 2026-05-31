@@ -1,3 +1,19 @@
+
+export interface D033Eligibility {
+  paper: "yes" | "borderline" | "no";
+  personal_broker: "yes" | "borderline" | "no";
+  challenge_z: "yes" | "borderline" | "no";
+  propfirm: "yes" | "borderline" | "no";
+}
+
+export interface D033 {
+  tier_davey: "STATISTICALLY_ROBUST" | "HIGH" | "MEDIUM" | "LOW" | "Archive";
+  deployment_stage: "rd" | "backtest_validated" | "paper" | "broker" | "propfirm" | "challenge_z";
+  eligibility: D033Eligibility;
+  schema_version: string;
+  computed_at: string;
+}
+
 export interface KPIs {
   profit_factor: number;
   win_rate: number;
@@ -38,6 +54,7 @@ export interface Run {
   tags: string[];
   notes?: string;
   kpis: KPIs;
+  d033?: D033;
 }
 
 export interface Trade {

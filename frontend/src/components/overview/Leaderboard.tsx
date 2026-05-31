@@ -6,7 +6,7 @@ import Tooltip from "@/components/ui/Tooltip";
 import type { Run } from "@/lib/types";
 import { colorClass, ddColor, pfColor, sharpeColor, tradesColor, wrColor } from "@/lib/colors";
 
-type ColKey = "pf" | "dd" | "sharpe" | "wr" | "trades" | "consec_w" | "consec_l" | "z_score" | "prop" | "score";
+type ColKey = "pf" | "dd" | "sharpe" | "wr" | "trades" | "consec_w" | "consec_l" | "score";
 type Dir = "asc" | "desc";
 
 const COLS: { key: ColKey; label: string; tooltip: string; higherIsBetter: boolean }[] = [
@@ -15,19 +15,18 @@ const COLS: { key: ColKey; label: string; tooltip: string; higherIsBetter: boole
   { key: "sharpe", label: "Sharpe", tooltip: "Sharpe ≥ 1.0 = bon.", higherIsBetter: true  },
   { key: "wr",     label: "Win%",   tooltip: "Win Rate.", higherIsBetter: true  },
   { key: "trades", label: "Trades", tooltip: "≥ 50 recommandé.", higherIsBetter: true  },
-  { key: "consec_w", label: "ConsW", tooltip: "Max consecutive wins — Challenge Z TMAFX ≥ 5.", higherIsBetter: true  },
-  { key: "consec_l", label: "ConsL", tooltip: "Max consecutive losses — Challenge Z TMAFX ≤ 3.", higherIsBetter: false },
-  { key: "z_score",  label: "Z",     tooltip: "Challenge Z Score /5 — compatibilité TMAFX.", higherIsBetter: true  },
-  { key: "prop",   label: "Prop",   tooltip: "Prop Score /5 — compatibilité FTMO.", higherIsBetter: true  },
+  { key: "consec_w", label: "ConsW", tooltip: "Max consecutive wins.", higherIsBetter: true  },
+  { key: "consec_l", label: "ConsL", tooltip: "Max consecutive losses.", higherIsBetter: false },
   { key: "score",  label: "Score",  tooltip: "Score composite /100.", higherIsBetter: true  },
 ];
 
+// D-033 : sections basées sur tier_davey (qualité statistique Pipeline Davey)
 const SECTIONS: { id: string; label: string; emoji: string; color: string; desc: string; initialSort: ColKey }[] = [
-  { id: "in_paper_trade", label: "En Paper Trade",         emoji: "🧪", color: "text-blue",        desc: "Validation forward live — comparaison Backtest vs Paper en cours. Verdict après seuils Scalping (15 trades) / Swing (5 trades).", initialSort: "trades" },
-  { id: "broker_ready",   label: "Broker Ready",           emoji: "💼", color: "text-purple-400",  desc: "Tier STATISTICALLY_ROBUST · Paper confirmé · prêtes pour Personal Broker (compte perso, risk libre).", initialSort: "pf" },
-  { id: "propfirm",       label: "PropFirm Ready",         emoji: "🏛️", color: "text-green-400",   desc: "PF ≥ 1.5 · MaxDD ≤ 10% · Trades ≥ 100 · Prop ≥ 4/5 — éligible FTMO 100k$", initialSort: "prop" },
-  { id: "challenge_z",    label: "Challenge Z Compatible", emoji: "🎯", color: "text-amber-400",   desc: "Z Score ≥ 3/5 ET trades ≥ 50 — compatibilité TMAFX statistiquement crédible · trié par Z puis Trades", initialSort: "z_score" },
-  { id: "construction",   label: "R&D",                    emoji: "🔨", color: "text-blue",        desc: "En cours d'investigation — pas encore éligible destination. Le Researcher Agent S50+ proposera des variantes pour améliorer ces stratégies.", initialSort: "score" },
+  { id: "STATISTICALLY_ROBUST", label: "Statistically Robust", emoji: "🏆", color: "text-amber-300",  desc: "Pipeline Davey 1-5 PASS complet — Train + Walk-Forward + OOS strict + Monte Carlo + Multi-asset. Prêtes pour Paper / Broker.", initialSort: "pf" },
+  { id: "HIGH",                 label: "High",                 emoji: "🥇", color: "text-green-400",  desc: "Davey 1-4 PASS — manque OOS strict OU MC. Solides candidats pour validation Paper.", initialSort: "pf" },
+  { id: "MEDIUM",               label: "Medium",               emoji: "🥈", color: "text-blue",       desc: "Davey 1-3 PASS — Train + WF stable, OOS marginal. Continuer R&D.", initialSort: "pf" },
+  { id: "LOW",                  label: "Low",                  emoji: "🥉", color: "text-muted",      desc: "Train PASS uniquement (PF > 1, sample > seuil). Variantes à explorer.", initialSort: "pf" },
+  { id: "Archive",              label: "Archive",              emoji: "🔴", color: "text-red-400",    desc: "Train FAIL ou WF drift définitif. Conservé pour apprentissage T-30.", initialSort: "trades" },
 ];
 
 // Mapping instrument → catégorie pour les filtres
@@ -54,8 +53,6 @@ function getValue(run: Run, key: ColKey): number {
     case "trades": return k.total_trades;
     case "consec_w": return k.max_consec_wins;
     case "consec_l": return k.max_consec_losses;
-    case "z_score":  return k.challenge_z_score;
-    case "prop":   return k.prop_score;
     case "score":  return k.composite_score;
   }
 }
@@ -248,6 +245,17 @@ function SectionPanel({
                       {run.strategy.name}
                       <span className="ml-1.5 text-muted text-xs font-normal">{run.strategy.version}</span>
                     </div>
+                    {run.d033?.eligibility && (
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {(["paper", "personal_broker", "challenge_z", "propfirm"] as const).map((dest) => {
+                          const v = run.d033!.eligibility[dest];
+                          if (v === "no") return null;
+                          const label = { paper: "Paper", personal_broker: "Broker", challenge_z: "Z", propfirm: "FTMO" }[dest];
+                          const cls = v === "yes" ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200";
+                          return <span key={dest} className={`text-[9px] px-1.5 py-0.5 rounded border ${cls}`}>{label}</span>;
+                        })}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-xs font-semibold">{run.universe.instrument}</span>
@@ -260,8 +268,6 @@ function SectionPanel({
                   <td className={`px-4 py-3 text-right font-mono ${colorClass(tradesColor(k.total_trades))}`}>{k.total_trades}</td>
                   <td className="px-4 py-3 text-right font-mono">{k.max_consec_wins}</td>
                   <td className="px-4 py-3 text-right font-mono">{k.max_consec_losses}</td>
-                  <td className="px-4 py-3 text-right font-mono"><ZCell z={k.challenge_z_score} trades={k.total_trades} /></td>
-                  <td className="px-4 py-3"><PropBar score={k.prop_score} /></td>
                   <td className="px-4 py-3 text-right"><span className="font-semibold text-blue">{k.composite_score}</span></td>
                   <td className="px-4 py-3 text-muted text-xs group-hover:text-blue transition-colors">→</td>
                 </tr>
@@ -367,11 +373,10 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
       {/* Sections */}
       <div className="space-y-8">
         {SECTIONS.map(section => {
+          // D-033 : filtre par tier_davey au lieu de kpis.sections (legacy)
           const sectionRuns = filteredRuns.filter(r => {
-            const secs = r.kpis.sections ?? [];
-            // S46 : fusion Archives → Atelier
-            if (section.id === "construction") return secs.includes("construction") || secs.includes("abandoned");
-            return secs.includes(section.id);
+            const tier = r.d033?.tier_davey ?? "Archive";
+            return tier === section.id;
           });
           // Si filtre actif et section vide, on la cache pour ne pas polluer
           if (hasActiveFilter && sectionRuns.length === 0) return null;

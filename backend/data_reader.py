@@ -97,6 +97,26 @@ def _prop_score(kpis_raw: dict) -> int:
 
 # ── Parsers ──────────────────────────────────────────────────────────────────
 
+
+
+def _parse_d033(meta: dict) -> "D033":
+    """Parse le namespace d033 du meta.json (créé par migrate_meta_d033.py)."""
+    from models import D033, D033Eligibility
+    d = meta.get("d033", {})
+    elig = d.get("eligibility", {})
+    return D033(
+        tier_davey=d.get("tier_davey", "Archive"),
+        deployment_stage=d.get("deployment_stage", "rd"),
+        eligibility=D033Eligibility(
+            paper=elig.get("paper", "no"),
+            personal_broker=elig.get("personal_broker", "no"),
+            challenge_z=elig.get("challenge_z", "no"),
+            propfirm=elig.get("propfirm", "no"),
+        ),
+        schema_version=d.get("schema_version", "1.0.0"),
+        computed_at=d.get("computed_at", ""),
+    )
+
 def _parse_kpis(meta: dict, kpis_raw: dict) -> KPIs:
     trades = kpis_raw["trade_counts"]["total"]
     return KPIs(
@@ -215,6 +235,7 @@ def _parse_run(run_dir: Path) -> Optional[RunSummary]:
             tags=meta.get("tags", []),
             notes=meta.get("notes"),
             kpis=_parse_kpis(meta, kpis_raw),
+        d033=_parse_d033(meta),
         )
     except Exception:
         return None

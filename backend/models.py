@@ -16,6 +16,23 @@ class UniverseInfo(BaseModel):
     type: str
 
 
+class D033Eligibility(BaseModel):
+    """Eligibility par destination — D-033 dimension 3 (calculé)."""
+    paper: str = "no"           # yes / borderline / no
+    personal_broker: str = "no"
+    challenge_z: str = "no"
+    propfirm: str = "no"
+
+
+class D033(BaseModel):
+    """Classification canonique D-033 (3 dimensions)."""
+    tier_davey: str = "Archive"           # STATISTICALLY_ROBUST / HIGH / MEDIUM / LOW / Archive
+    deployment_stage: str = "rd"          # rd / backtest_validated / paper / broker / propfirm / challenge_z
+    eligibility: D033Eligibility = D033Eligibility()
+    schema_version: str = "1.0.0"
+    computed_at: str = ""
+
+
 class KPIs(BaseModel):
     profit_factor: float
     win_rate: float
@@ -44,6 +61,7 @@ class RunSummary(BaseModel):
     tags: list[str]
     notes: Optional[str] = None
     kpis: KPIs
+    d033: D033 = D033()
 
 
 class Trade(BaseModel):
