@@ -111,25 +111,88 @@ export default function AIAssistantDrawer() {
 
   const ctx = getContext(pathname);
 
-  const send = (text: string) => {
+  const send = async (text: string) => {
     if (!text.trim()) return;
     const newMessages: Message[] = [...messages, { role: "user", content: text }];
     setMessages(newMessages);
     setInput("");
     setThinking(true);
 
-    // Placeholder simulation — vrai endpoint /ai/ask à venir Phase 2 D-033
-    setTimeout(() => {
+    // Extraire run_id depuis pathname si on est sur /strategy/[id]
+    let runId = "";
+    const strategyMatch = pathname.match(/^\/strategy\/([^/]+)/);
+    if (strategyMatch) runId = decodeURIComponent(strategyMatch[1]);
+
+    const API = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    let assistantContent = "";
+
+    try {
+      const res = await fetch(`${API}/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: runId, prompt: text }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status} — ${errBody || res.statusText}`);
+      }
+      if (!res.body) throw new Error("Stream body absent");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      // Insère un message assistant vide qu'on remplit au fil du stream
+      setMessages([...newMessages, { role: "assistant", content: "" }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]" || data.startsWith("[Erreur")) {
+            if (data.startsWith("[Erreur")) assistantContent += `\n\n${data}`;
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.text) {
+              assistantContent += parsed.text;
+              setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+            }
+          } catch {
+            // Fallback : data brute
+            assistantContent += data;
+            setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+          }
+        }
+      }
+    } catch (e) {
       setMessages([
         ...newMessages,
         {
           role: "assistant",
-          content:
-            "Endpoint LLM contextuel à venir (Phase 2 D-033). Pour l'instant l'Assistant IA général est dans la sidebar → Recherche → Assistant IA.",
+          content: `Erreur : ${e instanceof Error ? e.message : String(e)}. Vérifie que le backend tourne sur localhost:8000.`,
         },
       ]);
+    } finally {
       setThinking(false);
-    }, 600);
+      // Si la réponse est vide après le stream, afficher message debug
+      if (!assistantContent.trim()) {
+        setMessages([
+          ...newMessages,
+          {
+            role: "assistant",
+            content: "⚠ Réponse vide du backend. Vérifie :\n1. Le backend tourne (fenêtre Terminal noire ouverte ?)\n2. La clé ANTHROPIC_API_KEY est valide dans backend/.env\n3. Regarde les logs Terminal pour erreur Anthropic",
+          },
+        ]);
+      }
+    }
   };
 
   return (

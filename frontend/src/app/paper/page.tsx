@@ -1,7 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { FlaskConical, ChevronRight, Check, Clock, AlertTriangle, ArrowRight, Search, X } from "lucide-react";
+import { FlaskConical, ChevronRight, Check, Clock, AlertTriangle, ArrowRight, Search, X, Square } from "lucide-react";
+import { useRuns } from "@/hooks/useRuns";
+import { paperTraderList } from "@/lib/api";
+import type { Run } from "@/lib/types";
 
 type PaperStrategy = {
   id: string;
@@ -20,12 +23,13 @@ type PaperStrategy = {
   wr_paper: number | null;
   dd_backtest: number;
   dd_paper: number | null;
-  status: "confirmed" | "in_progress" | "drift";
+  status: "confirmed" | "in_progress" | "drift" | "stopped";
 };
 
 // Stratégies actuellement en Paper Trade
 // TODO: brancher sur backend /paper-runs (Phase 2 D-033)
-const PAPER_STRATEGIES: PaperStrategy[] = [
+// MOCK fallback (non utilisé — kept for reference)
+const PAPER_STRATEGIES_MOCK: PaperStrategy[] = [
   {
     id: "2026-05-30T151816Z__f10_v1a_avwap_rr3_qqq_15m__s57",
     name: "F10 V1A×AVWAP RR3",
@@ -68,6 +72,13 @@ const MEDAL: Record<number, { label: string; color: string }> = {
 };
 
 function StatusBadge({ status }: { status: PaperStrategy["status"] }) {
+  if (status === "stopped") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-red-500/15 text-red-400 whitespace-nowrap">
+        <Square size={10} /> Arrêté
+      </span>
+    );
+  }
   if (status === "confirmed") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-green-500/15 text-green-300 whitespace-nowrap">
@@ -115,9 +126,72 @@ function ActionButton({ status, name }: { status: PaperStrategy["status"]; name:
   );
 }
 
+
+// Convertit un Run avec deployment_stage="paper" en PaperStrategy
+// Les KPIs paper sont null pour l'instant (les agents LLM ne publient pas encore leurs trades)
+function runToPaperStrategy(run: Run): PaperStrategy {
+  const tf = (run.universe.timeframe ?? "").toLowerCase();
+  const tfMinutes = (() => {
+    const m = tf.match(/^(\d+)(m|min|h|hour|d|day|w|week)?/);
+    if (!m) return 60;
+    const n = parseInt(m[1] || "0");
+    const unit = m[2] || "m";
+    if (unit.startsWith("h")) return n * 60;
+    if (unit.startsWith("d")) return n * 60 * 24;
+    if (unit.startsWith("w")) return n * 60 * 24 * 7;
+    return n;
+  })();
+  const style: "scalping" | "swing" = tfMinutes <= 30 ? "scalping" : "swing";
+
+  const k = run.kpis;
+  return {
+    id: run.run_id,
+    name: run.strategy.name,
+    version: run.strategy.version,
+    instrument: run.universe.instrument,
+    timeframe: run.universe.timeframe,
+    style,
+    paperDays: 0,
+    tradesPaper: 0,
+    tradesRequired: style === "scalping" ? 100 : 30,
+    pf_backtest: k.profit_factor ?? 0,
+    pf_paper: null,
+    pf_delta_pct: null,
+    wr_backtest: (k.win_rate ?? 0) * (k.win_rate && k.win_rate <= 1 ? 100 : 1),
+    wr_paper: null,
+    dd_backtest: k.max_drawdown_pct ?? 0,
+    dd_paper: null,
+    status: "in_progress",
+  };
+}
+
 export default function PaperTradePage() {
   const [tab, setTab] = useState<"scalping" | "swing">("scalping");
   const [query, setQuery] = useState("");
+  const { runs, loading } = useRuns();
+  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+
+  // Fetch running paper traders + polling 30s
+  useEffect(() => {
+    async function refreshRunning() {
+      try {
+        const list = await paperTraderList();
+        setRunningIds(new Set(list.map((r) => r.run_id)));
+      } catch {
+        setRunningIds(new Set());
+      }
+    }
+    refreshRunning();
+    const iv = setInterval(refreshRunning, 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // PAPER_STRATEGIES = runs avec deployment_stage === "paper" (vraies données live)
+  // Status override : si flag paper MAIS process pas dans runningIds → "stopped"
+  const PAPER_STRATEGIES: PaperStrategy[] = runs
+    .filter((r) => r.d033?.deployment_stage === "paper")
+    .map(runToPaperStrategy)
+    .map((s) => ({ ...s, status: runningIds.has(s.id) ? s.status : "stopped" }));
 
   const q = query.trim().toLowerCase();
   const matchesQuery = (s: PaperStrategy) => {
@@ -157,6 +231,25 @@ export default function PaperTradePage() {
         <p className="text-xs text-muted mt-0.5">Validation forward live — est-ce que la réalité confirme le backtest ?</p>
       </div>
 
+      {/* Bannière explicative — différencier Paper Trade vs Laboratoire */}
+      <div className="p-3 rounded-lg bg-blue/5 border border-blue/20 text-xs">
+        <div className="flex items-start gap-2">
+          <span className="text-base">📊</span>
+          <div>
+            <div className="font-semibold text-blue">Phase 2 — Paper Trade (Validation forward live)</div>
+            <div className="text-muted mt-1">
+              <span className="font-medium">Objectif</span> : prouver que les chiffres du backtest se reproduisent en <span className="font-medium">temps réel</span>. Les stratégies tradent sur prix yfinance live (capital fictif $10k) pour accumuler un échantillon de trades forward.
+            </div>
+            <div className="text-muted mt-1.5">
+              <span className="font-medium">Critère de succès</span> : delta PF Paper vs Backtest ≥ −20% avec ≥ 100 trades (scalping) ou ≥ 30 trades (swing) → stratégie <strong>Confirmée</strong>.
+            </div>
+            <div className="text-muted mt-1.5">
+              <span className="font-medium">Prochaine étape</span> → quand Confirmée, transférer vers <strong>Personal Broker / PropFirm / Challenge Z</strong> (capital réel engagé).
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-surface border border-border rounded-lg p-3">
@@ -171,13 +264,13 @@ export default function PaperTradePage() {
         </div>
         <div className="bg-surface border border-border rounded-lg p-3">
           <div className="text-[10px] text-muted uppercase tracking-wider mb-1">P&L paper agrégé</div>
-          <div className="text-lg font-semibold text-green-400">+$248</div>
-          <div className="text-[10px] text-muted/70 mt-0.5">+2.5% sur $10k</div>
+          <div className="text-lg font-semibold text-muted">—</div>
+          <div className="text-[10px] text-muted/70 mt-0.5">en attente trades</div>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3">
           <div className="text-[10px] text-muted uppercase tracking-wider mb-1">Prêtes à transférer</div>
           <div className="text-lg font-semibold">{stats.confirmed}</div>
-          <div className="text-[10px] text-muted/70 mt-0.5">F10 V1A×AVWAP</div>
+          <div className="text-[10px] text-muted/70 mt-0.5">{stats.confirmed === 0 ? "aucune confirmée" : "voir détails"}</div>
         </div>
       </div>
 
@@ -236,11 +329,8 @@ export default function PaperTradePage() {
                 <th className="text-left px-4 py-3">Stratégie</th>
                 <th className="text-left px-4 py-3">Univers</th>
                 <th className="text-left px-4 py-3">Statut</th>
-                <th className="text-right px-4 py-3">PF BT</th>
                 <th className="text-right px-4 py-3">PF Paper</th>
-                <th className="text-right px-4 py-3">WR BT</th>
                 <th className="text-right px-4 py-3">WR Paper</th>
-                <th className="text-right px-4 py-3">DD BT</th>
                 <th className="text-right px-4 py-3">DD Paper</th>
                 <th className="text-right px-4 py-3">Sample</th>
                 <th className="text-right px-4 py-3">Action</th>
@@ -275,7 +365,6 @@ export default function PaperTradePage() {
                       <span className="ml-1 text-muted text-xs">{s.timeframe}</span>
                     </td>
                     <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
-                    <td className="px-4 py-3 text-right font-mono">{s.pf_backtest.toFixed(2)}</td>
                     <td className={`px-4 py-3 text-right font-mono ${deltaColor}`}>
                       {s.pf_paper !== null ? (
                         <>
@@ -284,12 +373,12 @@ export default function PaperTradePage() {
                             <span className="text-[10px] ml-1">({s.pf_delta_pct > 0 ? "+" : ""}{s.pf_delta_pct}%)</span>
                           )}
                         </>
-                      ) : <span className="text-muted">—</span>}
+                      ) : (
+                        <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.pf_backtest.toFixed(2)})</span></span>
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{s.wr_backtest.toFixed(1)}%</td>
-                    <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <span className="text-muted">—</span>}</td>
-                    <td className="px-4 py-3 text-right font-mono">{s.dd_backtest.toFixed(1)}%</td>
-                    <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <span className="text-muted">—</span>}</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.wr_backtest.toFixed(1)}%)</span></span>}</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.dd_backtest.toFixed(1)}%)</span></span>}</td>
                     <td className="px-4 py-3 text-right text-xs text-muted">
                       {s.tradesPaper}/{s.tradesRequired}
                       <div className="text-[10px] text-muted/70">{s.paperDays}j</div>

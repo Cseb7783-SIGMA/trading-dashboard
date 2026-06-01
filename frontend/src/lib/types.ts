@@ -9,6 +9,8 @@ export interface KPIsPeriod {
 }
 
 export interface KPIsByPeriod {
+  "1d"?: KPIsPeriod;
+  "1w"?: KPIsPeriod;
   "1m"?: KPIsPeriod;
   "3m"?: KPIsPeriod;
   "6m"?: KPIsPeriod;

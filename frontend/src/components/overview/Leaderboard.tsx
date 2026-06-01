@@ -267,11 +267,54 @@ function SectionPanel({
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-medium group-hover:text-blue transition-colors">
+                      {(() => {
+                        const stage = run.d033?.deployment_stage ?? "rd";
+                        if (stage === "rd") return null;
+                        const dotColor: Record<string, string> = {
+                          paper:       "bg-purple-500",
+                          broker:      "bg-blue-500",
+                          propfirm:    "bg-amber-500",
+                          challenge_z: "bg-yellow-500",
+                        };
+                        const title: Record<string, string> = {
+                          paper:       "Paper Trade actif",
+                          broker:      "Personal Broker actif",
+                          propfirm:    "PropFirm FTMO actif",
+                          challenge_z: "Challenge Z (TMAFX) actif",
+                        };
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 mr-2 px-1.5 py-0.5 rounded-full bg-purple-50 border border-purple-200 align-middle"
+                            title={title[stage] ?? "Déployée"}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${dotColor[stage] ?? "bg-purple-500"} animate-pulse`} />
+                            <span className="text-[9px] font-semibold text-purple-700 uppercase tracking-wider">Live</span>
+                          </span>
+                        );
+                      })()}
                       {run.strategy.name}
                       <span className="ml-1.5 text-muted text-xs font-normal">{run.strategy.version}</span>
                       {run.drift_status === "critical" && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200">⚠ drift</span>}
                       {run.drift_status === "warning" && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">⚠ attention</span>}
                       {run.drift_status === "stable" && <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">✓ stable</span>}
+                      {(() => {
+                        const stage = run.d033?.deployment_stage ?? "rd";
+                        if (stage === "rd") return null;
+                        const stageMap: Record<string, { label: string; cls: string; dot: string }> = {
+                          paper:       { label: "Paper actif",  cls: "bg-purple-50 text-purple-700 border-purple-300", dot: "bg-purple-500" },
+                          broker:      { label: "Broker actif", cls: "bg-blue-50 text-blue-700 border-blue-300",     dot: "bg-blue-500" },
+                          propfirm:    { label: "FTMO actif",   cls: "bg-amber-50 text-amber-700 border-amber-300",  dot: "bg-amber-500" },
+                          challenge_z: { label: "Z actif",      cls: "bg-yellow-50 text-yellow-700 border-yellow-300", dot: "bg-yellow-500" },
+                        };
+                        const s = stageMap[stage];
+                        if (!s) return null;
+                        return (
+                          <span className={`ml-2 inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full border font-medium ${s.cls}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+                            {s.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     {run.d033?.eligibility && (
                       <div className="flex gap-1 mt-1 flex-wrap">
@@ -308,12 +351,28 @@ function SectionPanel({
   );
 }
 
+
+// Helper : classifie style (scalping/swing) sans dépendre du backend D033 (S59 — sans restart)
+function getStyle(r: Run): "scalping" | "swing" {
+  // 1) Si backend a calculé style, l'utiliser
+  if (r.d033?.style === "scalping" || r.d033?.style === "swing") return r.d033.style;
+  // 2) Sinon, heuristique : haute fréquence = scalping
+  const trades = r.kpis?.total_trades ?? 0;
+  const tf = (r.universe?.timeframe || "").toLowerCase();
+  const tfShort = !(tf.endsWith("h") || tf.endsWith("d") || tf.endsWith("w"));
+  // Seuils alignés sur S59 (≥ 0.5 trades/jour approximé via sample size)
+  if (tfShort && trades >= 50) return "scalping";
+  if (trades >= 200) return "scalping";
+  return "swing";
+}
+
 export default function Leaderboard({ runs }: { runs: Run[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [period, setPeriod] = useState<"all_time" | "12m" | "6m" | "3m" | "1m">("all_time");
   const [styleFilter, setStyleFilter] = useState<"all" | "scalping" | "swing">("all");
+  const [stageFilter, setStageFilter] = useState<"all" | "deployed">("all");
 
   if (!runs.length) {
     return (
@@ -328,16 +387,15 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
 
   // Filtre global : search + category filter
   const q = query.trim().toLowerCase();
+  const deployedCount = runs.filter(r => (r.d033?.deployment_stage ?? "rd") !== "rd").length;
+
   const filteredRuns = runs.filter(r => {
-    if (styleFilter !== "all") {
-      const style = r.d033?.style;
-      if (!style && styleFilter === "scalping") {
-        // Si style absent, déduire du TF
-        const tf = (r.universe?.timeframe || "").toLowerCase();
-        if (tf.endsWith("h") || tf.endsWith("d") || tf.endsWith("w")) return false;
-      }
-      if (style && style !== styleFilter) return false;
+    // Filtre Stage : Déployées = deployment_stage ≠ "rd"
+    if (stageFilter === "deployed") {
+      const stage = r.d033?.deployment_stage ?? "rd";
+      if (stage === "rd") return false;
     }
+    if (styleFilter !== "all" && getStyle(r) !== styleFilter) return false;
     if (categoryFilter && categoryOf(r.universe?.instrument) !== categoryFilter) return false;
     if (!q) return true;
     const haystack = [
@@ -412,26 +470,41 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
       {/* Onglets Style Scalping/Swing (S59) */}
       <div className="flex items-center gap-0 border-b border-border">
         {(["all", "scalping", "swing"] as const).map((s) => {
-          const count = s === "all" ? runs.length : runs.filter(r => {
-            const style = r.d033?.style;
-            if (style) return style === s;
-            const tf = (r.universe?.timeframe || "").toLowerCase();
-            const isSwing = tf.endsWith("h") || tf.endsWith("d") || tf.endsWith("w");
-            return s === "swing" ? isSwing : !isSwing;
-          }).length;
+          const count = s === "all" ? runs.length : runs.filter(r => getStyle(r) === s).length;
           const label = s === "all" ? "Toutes" : s === "scalping" ? "Scalping" : "Swing";
           return (
             <button
               key={s}
               onClick={() => setStyleFilter(s)}
               className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${
-                styleFilter === s ? "border-blue text-blue font-medium" : "border-transparent text-muted hover:text-text"
+                styleFilter === s ? "border-blue text-blue font-medium" : "border-transparent text-text hover:text-blue"
               }`}
             >
               {label} <span className="text-muted font-normal">({count})</span>
             </button>
           );
         })}
+      </div>
+
+      {/* Filtre Stage D-033 (Toutes / Déployées) */}
+      <div className="flex items-center gap-2 px-1">
+        <span className="text-[11px] text-muted uppercase tracking-wider">Stage :</span>
+        {([
+          { key: "all",      label: `Toutes (${runs.length})` },
+          { key: "deployed", label: `🚀 Déployées (${deployedCount})` },
+        ] as const).map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setStageFilter(s.key as typeof stageFilter)}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+              stageFilter === s.key
+                ? "bg-purple-50 border-purple-300 text-purple-700 font-medium"
+                : "bg-ink border-border text-muted hover:text-text"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
 
       {/* Toggle période D-033 */}

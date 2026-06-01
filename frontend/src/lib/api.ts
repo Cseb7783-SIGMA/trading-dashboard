@@ -58,3 +58,135 @@ export async function deleteSuggestion(runId: string, suggestionId: string): Pro
     method: "DELETE",
   });
 }
+
+
+export type Destination = "rd" | "paper" | "broker" | "propfirm" | "challenge_z";
+
+export interface ActivateResponse {
+  ok: boolean;
+  run_id: string;
+  previous_stage: string;
+  deployment_stage: string;
+  activated_at: string;
+}
+
+export async function activateRun(runId: string, destination: Destination): Promise<ActivateResponse> {
+  const res = await fetch(`${BASE}/runs/${encodeURIComponent(runId)}/activate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ destination }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(`activateRun failed (${res.status}): ${errText}`);
+  }
+  return res.json();
+}
+
+
+// ─── Paper Trader Native (S59 Phase B) ──────────────────────────────────────
+export interface PaperState {
+  in_position: boolean;
+  entry_price: number | null;
+  entry_bar_ts: string | null;
+  sl: number | null;
+  tp: number | null;
+  capital: number;
+  trade_count: number;
+  wins: number;
+  losses: number;
+  total_pnl: number;
+  last_signal_ts: string | null;
+}
+
+export interface PaperTrade {
+  entry_ts: string;
+  exit_ts: string;
+  direction: string;
+  entry_price: number;
+  exit_price: number;
+  qty: number;
+  pnl: number;
+  exit_reason: string;
+  logged_at: string;
+}
+
+export interface PaperData {
+  run_id: string;
+  state: PaperState | null;
+  trades: PaperTrade[];
+  has_data: boolean;
+}
+
+export async function paperTraderStart(runId: string): Promise<{ ok: boolean; pid?: number; already_running?: boolean; error?: string }> {
+  const res = await fetch(`${BASE}/paper-trader/${encodeURIComponent(runId)}/start`, { method: "POST" });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => res.statusText);
+    throw new Error(`paperTraderStart (${res.status}): ${txt}`);
+  }
+  return res.json();
+}
+
+export async function paperTraderStop(runId: string): Promise<{ ok: boolean; stopped?: boolean }> {
+  const res = await fetch(`${BASE}/paper-trader/${encodeURIComponent(runId)}/stop`, { method: "POST" });
+  if (!res.ok) throw new Error(`paperTraderStop ${res.status}`);
+  return res.json();
+}
+
+export async function paperTraderStatus(runId: string): Promise<{ run_id: string; running: boolean; pid_info?: object; state?: PaperState; trades_count?: number; last_trade?: object }> {
+  const res = await fetch(`${BASE}/paper-trader/${encodeURIComponent(runId)}/status`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`paperTraderStatus ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPaperData(runId: string): Promise<PaperData> {
+  const res = await fetch(`${BASE}/runs/${encodeURIComponent(runId)}/paper-data`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchPaperData ${res.status}`);
+  return res.json();
+}
+
+export async function paperTraderList(): Promise<{ run_id: string; pid: number }[]> {
+  const res = await fetch(`${BASE}/paper-trader/list`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`paperTraderList ${res.status}`);
+  return res.json();
+}
+
+export async function fetchLivePrice(symbol: string): Promise<{ ok: boolean; symbol?: string; yf_symbol?: string; price?: number; change_pct?: number; ts?: string; error?: string }> {
+  const res = await fetch(`${BASE}/price/${encodeURIComponent(symbol)}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchLivePrice ${res.status}`);
+  return res.json();
+}
+
+export type LiveBar = { time: number; open: number; high: number; low: number; close: number; volume: number };
+export async function fetchLiveBars(symbol: string, tf: string, limit: number = 200): Promise<{ ok: boolean; symbol?: string; tf?: string; bars?: LiveBar[]; error?: string }> {
+  const res = await fetch(`${BASE}/live-bars/${encodeURIComponent(symbol)}/${encodeURIComponent(tf)}?limit=${limit}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchLiveBars ${res.status}`);
+  return res.json();
+}
+
+export type IndicatorPoint = { time: number; value: number };
+export type LiveIndicators = {
+  ok: boolean;
+  symbol?: string;
+  tf?: string;
+  indicators?: {
+    ema?: { length: number; points: IndicatorPoint[] };
+    bb?: { length: number; mult: number; upper: IndicatorPoint[]; middle: IndicatorPoint[]; lower: IndicatorPoint[] };
+    avwap?: { anchored_at: number; points: IndicatorPoint[] };
+    rsi?: { length: number; points: IndicatorPoint[] };
+    volume_profile?: { sessions: { session_date: string; session_ts: number; poc: number; vah: number; val: number; high: number; low: number }[] };
+  };
+  error?: string;
+};
+export async function fetchLiveIndicators(symbol: string, tf: string, opts: { ema?: number; bb_length?: number; bb_mult?: number; rsi_length?: number; avwap?: boolean; volume_profile?: boolean } = {}, limit: number = 200): Promise<LiveIndicators> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (opts.ema) params.set("ema", String(opts.ema));
+  if (opts.bb_length) { params.set("bb_length", String(opts.bb_length)); params.set("bb_mult", String(opts.bb_mult ?? 2)); }
+  if (opts.rsi_length) params.set("rsi_length", String(opts.rsi_length));
+  if (opts.avwap) params.set("avwap", "true");
+  if (opts.volume_profile) params.set("volume_profile", "true");
+  const res = await fetch(`${BASE}/live-indicators/${encodeURIComponent(symbol)}/${encodeURIComponent(tf)}?${params.toString()}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchLiveIndicators ${res.status}`);
+  return res.json();
+}

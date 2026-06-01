@@ -6,6 +6,32 @@ type PineResponse = { available: boolean; strategy_name: string; pine_code?: str
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+
+// Mapping instrument → symbole TradingView complet (S59 fix : ES n'est pas sur NASDAQ)
+function tvSymbol(instrument: string): string {
+  const map: Record<string, string> = {
+    QQQ: "NASDAQ:QQQ",
+    SPY: "AMEX:SPY",
+    IWM: "AMEX:IWM",
+    DIA: "AMEX:DIA",
+    ES:  "CME_MINI:ES1!",
+    NQ:  "CME_MINI:NQ1!",
+    YM:  "CBOT_MINI:YM1!",
+    RTY: "CME_MINI:RTY1!",
+    CL:  "NYMEX:CL1!",
+    GC:  "COMEX:GC1!",
+    SI:  "COMEX:SI1!",
+    BTC: "BINANCE:BTCUSDT",
+    BTCUSD: "BINANCE:BTCUSDT",
+    ETH: "BINANCE:ETHUSDT",
+    ETHUSD: "BINANCE:ETHUSDT",
+    EURUSD: "OANDA:EURUSD",
+    GBPUSD: "OANDA:GBPUSD",
+    USDJPY: "OANDA:USDJPY",
+  };
+  return map[instrument.toUpperCase()] ?? `NASDAQ:${instrument}`;
+}
+
 export default function PineModal({ runId, isOpen, onClose, instrument }: { runId: string; isOpen: boolean; onClose: () => void; instrument?: string }) {
   const [pine, setPine] = useState<PineResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,10 +61,7 @@ export default function PineModal({ runId, isOpen, onClose, instrument }: { runI
     await navigator.clipboard.writeText(pine.pine_code);
     setCopied(true);
 
-    const symbol = instrument === "QQQ" ? "NASDAQ:QQQ"
-                 : instrument === "SPY" ? "AMEX:SPY"
-                 : instrument === "IWM" ? "AMEX:IWM"
-                 : `NASDAQ:${instrument}`;
+    const symbol = tvSymbol(instrument || "");
 
     const url = `https://www.tradingview.com/chart/?symbol=${symbol}`;
     window.open(url, "_blank", "noopener,noreferrer");
@@ -127,7 +150,7 @@ export default function PineModal({ runId, isOpen, onClose, instrument }: { runI
           </span>
           {pine?.available && (
             <a
-              href={`https://www.tradingview.com/chart/?symbol=${instrument === "QQQ" ? "NASDAQ:QQQ" : instrument === "SPY" ? "AMEX:SPY" : instrument === "IWM" ? "AMEX:IWM" : `NASDAQ:${instrument}`}`}
+              href={`https://www.tradingview.com/chart/?symbol=${tvSymbol(instrument || "")}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue hover:underline flex items-center gap-1"

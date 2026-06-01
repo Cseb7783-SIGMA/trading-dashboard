@@ -3,12 +3,28 @@ import { FolderOpen, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { useRuns } from "@/hooks/useRuns";
 import KPISummary from "@/components/overview/KPISummary";
 import Leaderboard from "@/components/overview/Leaderboard";
+import MultiPeriodSummary from "@/components/overview/MultiPeriodSummary";
+import AccordionSection from "@/components/ui/AccordionSection";
 
 export default function OverviewPage() {
   const { runs, loading, streamStatus, toast } = useRuns();
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <div className="mb-4 p-3 rounded-lg bg-blue/5 border border-blue/20 text-xs">
+        <div className="flex items-start gap-2">
+          <span className="text-base">🧪</span>
+          <div>
+            <div className="font-semibold text-blue">Phase 1 — Laboratoire (Backtest historique)</div>
+            <div className="text-muted mt-1">
+              <span className="font-medium">Objectif</span> : découvrir des stratégies qui auraient été rentables sur les <span className="font-medium">données passées</span>. R&D, optimisation, walk-forward, classification. <span className="italic">Aucun capital engagé, aucune validation forward.</span>
+            </div>
+            <div className="text-muted mt-1.5">
+              <span className="font-medium">Prochaine étape</span> → quand une stratégie semble robuste, on l'envoie en <strong>Paper Trade</strong> pour vérifier que le backtest tient en temps réel.
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-text">Laboratoire</h1>
@@ -38,9 +54,33 @@ export default function OverviewPage() {
           <p className="text-muted text-xs">Lancez un backtest — le dashboard se mettra à jour automatiquement.</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          <KPISummary runs={runs} />
-          <Leaderboard runs={runs} />
+        <div className="space-y-3">
+          <AccordionSection
+            id="kpi-summary"
+            title="KPIs principaux"
+            subtitle="Runs analysés · Robustes · Best PF · Drift stable"
+            defaultOpen={true}
+          >
+            <KPISummary runs={runs} />
+          </AccordionSection>
+
+          <AccordionSection
+            id="multi-period"
+            title="Résumé multi-périodes"
+            subtitle="PF / WR par fenêtre temporelle (1m → all-time) · drift detection"
+            defaultOpen={false}
+          >
+            <MultiPeriodSummary runs={runs} />
+          </AccordionSection>
+
+          <AccordionSection
+            id="leaderboard"
+            title="Leaderboard stratégies"
+            subtitle="Classement par tier Davey (D-033) · filtres Scalping/Swing/Toutes"
+            defaultOpen={true}
+          >
+            <Leaderboard runs={runs} />
+          </AccordionSection>
         </div>
       )}
 

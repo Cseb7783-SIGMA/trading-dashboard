@@ -107,6 +107,7 @@ def _parse_d033(meta: dict) -> "D033":
     return D033(
         tier_davey=d.get("tier_davey", "Archive"),
         deployment_stage=d.get("deployment_stage", "rd"),
+        style=d.get("style", "swing"),
         eligibility=D033Eligibility(
             paper=elig.get("paper", "no"),
             personal_broker=elig.get("personal_broker", "no"),

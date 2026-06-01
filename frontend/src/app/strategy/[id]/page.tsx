@@ -12,6 +12,10 @@ import RollingMetrics from "@/components/strategy/RollingMetrics";
 import TradeTable from "@/components/strategy/TradeTable";
 import PriceChart from "@/components/strategy/PriceChart";
 import PineModal from "@/components/strategy/PineModal";
+import ActivateModal from "@/components/strategy/ActivateModal";
+import PaperLiveCard from "@/components/strategy/PaperLiveCard";
+import LiveChart from "@/components/strategy/LiveChart";
+import type { Destination } from "@/lib/api";
 
 export default function StrategyPage() {
   const { id } = useParams<{ id: string }>();
@@ -58,18 +62,95 @@ export default function StrategyPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
-        <nav className="text-[11px] text-muted mb-4">
-          <button onClick={() => router.push("/")} className="text-blue hover:underline">Laboratoire</button>
-          <span className="mx-1 opacity-40">›</span>
-          <span>{run.strategy.name}</span>
-        </nav>
+        {(() => {
+          const stage = run.d033?.deployment_stage ?? "rd";
+          const ctx: Record<string, { label: string; href: string; icon: string; phase: string }> = {
+            rd:                  { label: "Laboratoire",     href: "/",              icon: "🧪", phase: "Phase 1 — Backtest historique" },
+            backtest_validated:  { label: "Laboratoire",     href: "/",              icon: "🧪", phase: "Phase 1 — Backtest validé" },
+            paper:               { label: "Paper Trade",     href: "/paper",         icon: "📊", phase: "Phase 2 — Validation forward live" },
+            broker:              { label: "Personal Broker", href: "/personal-broker", icon: "💰", phase: "Phase 3 — Capital réel personnel" },
+            propfirm:            { label: "PropFirm",        href: "/propfirm",      icon: "🏛", phase: "Phase 3 — Challenge PropFirm" },
+            challenge_z:         { label: "Challenge Z",     href: "/challenge-z",   icon: "🏆", phase: "Phase 3 — TMAFX Climb Z" },
+          };
+          const c = ctx[stage] ?? ctx.rd;
+          return (
+            <>
+              <nav className="text-[11px] text-muted mb-2 flex items-center">
+                <button onClick={() => router.push(c.href)} className="text-blue hover:underline">{c.icon} {c.label}</button>
+                <span className="mx-1 opacity-40">›</span>
+                <span>{run.strategy.name}</span>
+              </nav>
+              <div className="text-[11px] text-muted/70 mb-4 italic">
+                {c.phase}
+              </div>
+            </>
+          );
+        })()}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold text-text truncate">
               {run.strategy.name} <span className="text-muted font-normal text-base">{run.strategy.version}</span>
             </h1>
-            <p className="text-xs text-muted mt-0.5">
-              {run.universe.instrument} · {run.universe.timeframe} · {new Date(run.created_at).toLocaleDateString("fr-CA")}
+            <p className="text-xs text-muted mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>{run.universe.instrument} · {run.universe.timeframe} · {new Date(run.created_at).toLocaleDateString("fr-CA")}</span>
+              {(() => {
+                // Calcul du holding time moyen depuis run.trades
+                const trades = run.trades ?? [];
+                if (trades.length === 0) return null;
+
+                // Parse timeframe en minutes
+                const tf = (run.universe.timeframe ?? "").toLowerCase();
+                const m = tf.match(/^(\d+)(m|min|h|hour|d|day|w|week)?/);
+                const tfMin = m
+                  ? (m[2]?.startsWith("h") ? parseInt(m[1])*60
+                    : m[2]?.startsWith("d") ? parseInt(m[1])*60*24
+                    : m[2]?.startsWith("w") ? parseInt(m[1])*60*24*7
+                    : parseInt(m[1]))
+                  : 60;
+
+                // Holding time moyen en minutes = avg(bars_held) × tfMin
+                const avgBars = trades.reduce((s, t) => s + (t.bars_held || 0), 0) / trades.length;
+                const avgHoldingMin = avgBars * tfMin;
+                const avgHoldingHours = avgHoldingMin / 60;
+                const avgHoldingDays = avgHoldingHours / 24;
+
+                // Trades par jour (sur la période du backtest)
+                const firstDt = new Date(trades[0].entry_dt).getTime();
+                const lastDt  = new Date(trades[trades.length - 1].exit_dt).getTime();
+                const periodDays = Math.max(1, (lastDt - firstDt) / 86400000);
+                const tradesPerDay = trades.length / periodDays;
+
+                // Classification (S59 — seuil flexible Sebast)
+                // Scalping = au moins 1 trade tous les 2 jours (≥ 0.5 trades/jour)
+                // Position = très peu fréquent (< 1 trade par 20 jours)
+                // Swing = entre les deux
+                let style: "scalping" | "swing" | "position";
+                let icon: string;
+                let cls: string;
+                if (tradesPerDay >= 0.5) {
+                  style = "scalping"; icon = "⚡"; cls = "bg-blue-50 text-blue-700 border-blue-300";
+                } else if (tradesPerDay < 0.05 && avgHoldingDays > 7) {
+                  style = "position"; icon = "🌳"; cls = "bg-green-50 text-green-700 border-green-300";
+                } else {
+                  style = "swing"; icon = "🕰"; cls = "bg-purple-50 text-purple-700 border-purple-300";
+                }
+
+                const label = style === "scalping" ? "Scalping" : style === "position" ? "Position" : "Swing";
+                const detail = avgHoldingHours < 1
+                  ? `${Math.round(avgHoldingMin)}min holding`
+                  : avgHoldingDays < 1
+                  ? `${avgHoldingHours.toFixed(1)}h holding`
+                  : `${avgHoldingDays.toFixed(1)}j holding`;
+
+                return (
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${cls}`}
+                    title={`${detail} · ${tradesPerDay.toFixed(2)} trades/jour · ${trades.length} trades sur ${Math.round(periodDays)} jours`}
+                  >
+                    {icon} {label}
+                  </span>
+                );
+              })()}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -97,14 +178,139 @@ export default function StrategyPage() {
             )}
           </div>
         </div>
-        {run.notes && <p className="text-xs text-muted mt-2 italic">{run.notes}</p>}
+        {run.notes && (() => {
+          // Fix 1 (S59 UX) : parser les triggers dict Python brut → badges colorés
+          const m = run.notes.match(/Triggers:\s*(\{[^}]+\})/);
+          if (m) {
+            const before = run.notes.slice(0, m.index).trim();
+            // Parse format "{'key': N, 'key2': N2, ...}"
+            const triggerPairs: Array<{ name: string; count: number; isLong: boolean }> = [];
+            const re = /[\'"]([^\'"]+)[\'"]:\s*(\d+)/g;
+            let mm;
+            while ((mm = re.exec(m[1])) !== null) {
+              const name = mm[1];
+              const count = parseInt(mm[2], 10);
+              const isLong = name.toUpperCase().includes("LONG");
+              triggerPairs.push({ name, count, isLong });
+            }
+            triggerPairs.sort((a, b) => b.count - a.count);
+            return (
+              <div className="mt-2 space-y-1.5">
+                {before && <p className="text-xs text-muted italic">{before}</p>}
+                <div className="flex flex-wrap gap-1.5">
+                  {triggerPairs.slice(0, 8).map((t) => (
+                    <span
+                      key={t.name}
+                      className={`text-[10px] px-2 py-0.5 rounded font-mono ${t.isLong ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}
+                      title={`${t.count} trades sur ce trigger`}
+                    >
+                      {t.name} · {t.count}
+                    </span>
+                  ))}
+                  {triggerPairs.length > 8 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-surface text-muted border border-border">
+                      +{triggerPairs.length - 8} autres
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          return <p className="text-xs text-muted mt-2 italic">{run.notes}</p>;
+        })()}
       </div>
 
       {/* Panneau d'actions — où en est cette stratégie, où peut-elle aller */}
       <ActionPanel run={run} />
 
       <div className="space-y-4">
-        <KPICards kpis={run.kpis} />
+        <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-text">📚 Backtest Historique</h3>
+              <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-300">
+                {run.kpis.total_trades} trades · données passées
+              </span>
+            </div>
+          </div>
+          <KPICards kpis={run.kpis} />
+        </div>
+
+        {/* Paper Trader Live (S59 Phase B) — visible uniquement si deployment_stage = paper */}
+        {run.d033?.deployment_stage === "paper" && (
+          <>
+            <PaperLiveCard runId={decodeURIComponent(id)} instrument={run.universe?.instrument} />
+            {run.universe?.instrument && run.universe?.timeframe && (
+              <LiveChart symbol={run.universe.instrument} tf={run.universe.timeframe} runId={decodeURIComponent(id)} strategyName={run.strategy.name} />
+            )}
+          </>
+        )}
+
+        {/* Résumé multi-périodes pour cette stratégie (S59) */}
+        {run.kpis_by_period && Object.keys(run.kpis_by_period).length > 0 && (
+          <div className="bg-surface border border-border rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-sm font-semibold text-text">Résumé multi-périodes</h3>
+                <p className="text-[11px] text-muted mt-0.5">PF / WR par fenêtre temporelle — détection drift</p>
+              </div>
+              {run.drift_status && run.drift_status !== "n/a" && (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${
+                  run.drift_status === "stable" ? "bg-green-50 text-green-700 border-green-200" :
+                  run.drift_status === "warning" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                  run.drift_status === "critical" ? "bg-red-50 text-red-700 border-red-200" :
+                  "bg-surface text-muted border-border"
+                }`}>
+                  Drift : {run.drift_status}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {(["12m", "6m", "3m", "1m"] as const).map((period) => {
+                const kp = run.kpis_by_period?.[period];
+                const label = period;
+                if (!kp || kp.pf === null || kp.pf === undefined) {
+                  return (
+                    <div key={period} className="bg-ink/30 rounded p-2.5 border border-border/60 text-center">
+                      <div className="text-[10px] text-muted uppercase tracking-wider mb-1">{label}</div>
+                      <div className="text-base text-muted">—</div>
+                      <div className="text-[10px] text-muted/60 mt-0.5">{kp?.trades ?? 0} trades</div>
+                    </div>
+                  );
+                }
+                // Sample insuffisant : < 5 trades → afficher en gris, pas de PF coloré (artefact)
+                const sampleInsuffisant = kp.trades < 5;
+                if (sampleInsuffisant) {
+                  return (
+                    <div key={period} className="bg-ink/30 rounded p-2.5 border border-border/60 text-center" title={`PF ${kp.pf.toFixed(2)} non significatif (seulement ${kp.trades} trades)`}>
+                      <div className="text-[10px] text-muted uppercase tracking-wider mb-1">{label}</div>
+                      <div className="text-base font-semibold font-mono text-muted/60">
+                        {Number.isFinite(kp.pf) ? kp.pf.toFixed(2) : "∞"}
+                      </div>
+                      <div className="text-[10px] text-amber-600 mt-0.5">⚠ {kp.trades} trades</div>
+                    </div>
+                  );
+                }
+                const pfColor =
+                  kp.pf >= 1.5 ? "text-green-700" :
+                  kp.pf >= 1.2 ? "text-blue" :
+                  kp.pf >= 1.0 ? "text-amber-600" : "text-red-500";
+                return (
+                  <div key={period} className="bg-ink/30 rounded p-2.5 border border-border/60 text-center">
+                    <div className="text-[10px] text-muted uppercase tracking-wider mb-1">{label}</div>
+                    <div className={`text-base font-semibold font-mono ${pfColor}`}>
+                      {Number.isFinite(kp.pf) ? kp.pf.toFixed(2) : "∞"}
+                    </div>
+                    <div className="text-[10px] text-muted mt-0.5">
+                      {kp.wr !== null && kp.wr !== undefined ? `${kp.wr.toFixed(0)}%` : "—"}
+                      <span className="text-muted/60"> · {kp.trades} trades</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <PriceChart runId={decodeURIComponent(id)} defaultAsset={run.universe.instrument} defaultTf={run.universe.timeframe} />
 
@@ -141,35 +347,32 @@ export default function StrategyPage() {
 // ActionPanel — affiche le stade courant + destinations éligibles + bouton action principal
 function ActionPanel({ run }: { run: RunDetail }) {
   const [skipMenuOpen, setSkipMenuOpen] = useState(false);
-  const sections = run.kpis.sections ?? [];
-  const k = run.kpis;
+  const [activateTarget, setActivateTarget] = useState<Destination | null>(null);
+  const router = useRouter();
+
+  // D-033 : stade et éligibilités viennent du backend (meta.json d033 namespace)
+  const stage = run.d033?.deployment_stage ?? "rd";
+  const elig = run.d033?.eligibility ?? { paper: "no", personal_broker: "no", challenge_z: "no", propfirm: "no" };
 
   // Détermine le stade actuel
   type Stage = { id: string; label: string; Icon: typeof Hammer; color: string; bg: string };
-  let currentStage: Stage;
-  if (sections.includes("in_paper_trade")) {
-    currentStage = { id: "paper", label: "En Paper Trade", Icon: FlaskConical, color: "text-blue", bg: "bg-blue/15 border-blue/40" };
-  } else if (sections.includes("broker_ready")) {
-    currentStage = { id: "broker", label: "Broker Ready", Icon: Briefcase, color: "text-purple-300", bg: "bg-purple-500/15 border-purple-400/40" };
-  } else {
-    currentStage = { id: "atelier", label: "Atelier", Icon: Hammer, color: "text-muted", bg: "bg-surface border-border" };
-  }
+  const STAGE_INFO: Record<string, Stage> = {
+    rd:          { id: "rd",          label: "R&D",                  Icon: Hammer,        color: "text-muted",      bg: "bg-surface border-border" },
+    paper:       { id: "paper",       label: "Paper Trade",          Icon: FlaskConical,  color: "text-purple-700",  bg: "bg-purple-50 border-purple-300" },
+    broker:      { id: "broker",      label: "Personal Broker actif",Icon: Briefcase,     color: "text-blue-700",    bg: "bg-blue-50 border-blue-300" },
+    propfirm:    { id: "propfirm",    label: "PropFirm FTMO actif",  Icon: Building2,     color: "text-amber-700",   bg: "bg-amber-50 border-amber-300" },
+    challenge_z: { id: "challenge_z", label: "Challenge Z actif",    Icon: Trophy,        color: "text-yellow-700",  bg: "bg-yellow-50 border-yellow-300" },
+  };
+  const currentStage = STAGE_INFO[stage] ?? STAGE_INFO["rd"];
 
-  // Détermine les destinations éligibles (heuristique frontend en attendant backend D-033)
-  // Règle business (validée S58) : Personal Broker = TES règles (souples), donc une stratégie
-  // qui passe les contraintes externes dures (Challenge Z / PropFirm) passe forcément Broker.
+  // Éligibilités basées sur d033.eligibility (source unique de vérité D-033)
   type Eligibility = { id: string; label: string; Icon: typeof Briefcase; color: string };
-  const propfirmEligible   = k.prop_score >= 4 && k.total_trades >= 100 && k.max_drawdown_pct <= 10;
-  const challengeZEligible = k.challenge_z_score >= 3 && k.total_trades >= 50;
-  const brokerBaseline     = k.composite_score >= 70 && k.total_trades >= 50;
-  const brokerEligible     = brokerBaseline || propfirmEligible || challengeZEligible;
-
   const eligibilities: Eligibility[] = [];
-  if (brokerEligible)     eligibilities.push({ id: "broker",      label: "Personal Broker",     Icon: Briefcase,  color: "text-purple-300" });
-  if (propfirmEligible)   eligibilities.push({ id: "propfirm",    label: "PropFirm FTMO",       Icon: Building2,  color: "text-green-400"  });
-  if (challengeZEligible) eligibilities.push({ id: "challenge_z", label: "Challenge Z TMAFX",   Icon: Trophy,     color: "text-amber-400"  });
+  if (elig.personal_broker === "yes") eligibilities.push({ id: "broker",      label: "Personal Broker",   Icon: Briefcase, color: "text-blue-700" });
+  if (elig.propfirm === "yes")        eligibilities.push({ id: "propfirm",    label: "PropFirm FTMO",     Icon: Building2, color: "text-amber-700" });
+  if (elig.challenge_z === "yes")     eligibilities.push({ id: "challenge_z", label: "Challenge Z TMAFX", Icon: Trophy,    color: "text-yellow-700" });
 
-  const isInPaper = currentStage.id === "paper";
+  const isInPaper = stage === "paper";
   const StageIcon = currentStage.Icon;
 
   return (
@@ -205,7 +408,7 @@ function ActionPanel({ run }: { run: RunDetail }) {
         <div className="flex flex-col items-end gap-2 relative">
           {!isInPaper && (
             <button
-              onClick={() => alert("Modal 'Activer en Paper Trade' — à venir UX5/UX7")}
+              onClick={() => setActivateTarget("paper")}
               className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded bg-blue/15 border border-blue/40 text-blue hover:bg-blue/25 transition-colors whitespace-nowrap"
             >
               <FlaskConical size={13} /> Activer en Paper Trade <ArrowRight size={12} />
@@ -213,7 +416,11 @@ function ActionPanel({ run }: { run: RunDetail }) {
           )}
           {isInPaper && eligibilities.length > 0 && (
             <button
-              onClick={() => alert(`Modal 'Transférer vers...' — destinations éligibles : ${eligibilities.map(e => e.label).join(", ")}`)}
+              onClick={() => {
+                // MVP : transférer vers la 1ère destination éligible (modal Transférer plus avancé en backlog)
+                const firstEligible = eligibilities[0]?.id as Destination | undefined;
+                if (firstEligible) setActivateTarget(firstEligible);
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded bg-blue/15 border border-blue/40 text-blue hover:bg-blue/25 transition-colors whitespace-nowrap"
             >
               Transférer vers… <ArrowRight size={12} />
@@ -252,7 +459,7 @@ function ActionPanel({ run }: { run: RunDetail }) {
                               `Modal complète + checkbox de confirmation à venir UX7.\n\n` +
                               `Continuer pareil ?`
                             );
-                            if (ok) alert(`OK — activation directe sur ${e.label} (placeholder, modal complète UX7)`);
+                            if (ok) setActivateTarget(e.id as Destination);
                           }}
                           className={`w-full px-3 py-2 text-xs text-left hover:bg-ink transition-colors flex items-center gap-2 ${e.color}`}
                         >
@@ -270,10 +477,26 @@ function ActionPanel({ run }: { run: RunDetail }) {
           <p className="text-[10px] text-muted/70 text-right max-w-[200px]">
             {!isInPaper
               ? "Recommandé : Paper Trade d'abord pour valider la stratégie en live."
-              : "Choisis la destination pour activer cette stratégie en capital réel."}
+              : eligibilities.length > 0
+                ? "Stratégie validée pour ces destinations. Transférer = capital réel engagé."
+                : "Continuer le paper trade pour accumuler sample requis."}
           </p>
         </div>
       </div>
+
+      {activateTarget && (
+        <ActivateModal
+          runId={run.run_id}
+          strategyName={run.strategy.name}
+          destination={activateTarget}
+          currentStage={run.d033?.deployment_stage ?? "rd"}
+          onClose={() => setActivateTarget(null)}
+          onSuccess={() => {
+            setActivateTarget(null);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -291,44 +514,8 @@ const PAPER_MOCK: Record<string, {
   dd_paper: number | null;
   recentTrades: { date: string; side: string; pnl: number }[];
 }> = {
-  "2026-05-30T151816Z__f10_v1a_avwap_rr3_qqq_15m__s57": {
-    status: "confirmed",
-    paperDays: 12,
-    tradesPaper: 9,
-    pf_paper: 1.95,
-    pf_delta_pct: -7,
-    wr_paper: 44.4,
-    dd_paper: -1.1,
-    recentTrades: [
-      { date: "2026-05-29 14:15", side: "LONG",  pnl: 46.50  },
-      { date: "2026-05-28 10:45", side: "SHORT", pnl: -12.50 },
-      { date: "2026-05-27 15:00", side: "LONG",  pnl: 41.00  },
-      { date: "2026-05-26 11:30", side: "LONG",  pnl: -13.00 },
-    ],
-  },
-  "2026-05-30T151817Z__v1a_voldelta_rr3_qqq_15m__s57": {
-    status: "in_progress",
-    paperDays: 6,
-    tradesPaper: 3,
-    pf_paper: null,
-    pf_delta_pct: null,
-    wr_paper: null,
-    dd_paper: null,
-    recentTrades: [],
-  },
-  "2026-05-28T120000Z__f1_v1e_qqq_range__s53": {
-    status: "drift",
-    paperDays: 28,
-    tradesPaper: 8,
-    pf_paper: 0.85,
-    pf_delta_pct: -77,
-    wr_paper: 25.0,
-    dd_paper: -3.8,
-    recentTrades: [
-      { date: "2026-05-25 11:00", side: "LONG",  pnl: -22.00 },
-      { date: "2026-05-22 14:30", side: "SHORT", pnl: -18.50 },
-    ],
-  },
+  // ⚠ Volontairement vide — les vraies données paper viendront des agents LLM
+  // quand ils publieront leurs trades. Tant que vide, PaperTradeOverlay ne s'affichera pas.
 };
 
 function PaperTradeOverlay({ runId }: { runId: string }) {

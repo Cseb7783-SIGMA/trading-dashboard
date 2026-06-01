@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import socket
+import importlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from fastapi.responses import StreamingResponse
 from ai_handler import stream_ai_response
 from data_reader import get_runs_dir, read_all_runs, read_run_detail
 from file_watcher import start_observer
-from models import AIRequest, SuggestionSave
+from models import AIRequest, SuggestionSave, ActivateRequest
 
 # ── SSE queue ─────────────────────────────────────────────────────────────
 sse_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -50,6 +51,47 @@ async def lifespan(app: FastAPI):
             _broadcast(run_id)
 
     task = asyncio.create_task(_dispatcher())
+
+    # ─── S59 Phase B : auto-start paper traders pour runs deployment_stage=paper ───
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _tl_tools = _Path(__file__).resolve().parent.parent.parent / "trading-lab" / "tools"
+        if not _tl_tools.exists():
+            _tl_tools = _Path("/Users/sebastiencaron/trading-lab/tools")
+        if str(_tl_tools) not in _sys.path:
+            _sys.path.insert(0, str(_tl_tools))
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator as _po
+        import json as _json
+        runs_dir = get_runs_dir()
+        started, failed = 0, 0
+        for run_dir in runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            meta_path = run_dir / "meta.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = _json.loads(meta_path.read_text())
+                if meta.get("d033", {}).get("deployment_stage") == "paper":
+                    if not _po.is_running(run_dir.name):
+                        r = _po.start(run_dir.name)
+                        if r.get("ok") and r.get("started"):
+                            started += 1
+                            print(f"  [auto-start] ✓ {run_dir.name} (pid {r.get('pid')})", flush=True)
+                        elif not r.get("ok"):
+                            failed += 1
+                            print(f"  [auto-start] ✗ {run_dir.name} : {r.get('error')}", flush=True)
+            except Exception as e:
+                failed += 1
+                print(f"  [auto-start] ✗ {run_dir.name} : {e}", flush=True)
+        print(f"[paper-trader] Auto-start summary: {started} started, {failed} failed", flush=True)
+    except Exception as e:
+        print(f"[paper-trader] Auto-start exception: {e}", flush=True)
+    # ─── fin auto-start ─────────────────────────────────────────────────────────
+
     yield
     task.cancel()
     observer.stop()
@@ -192,9 +234,8 @@ async def ai_stream(request: AIRequest):
                    "Voir docs/setup_anthropic_api.md pour configuration."
         )
 
-    detail = read_run_detail(request.run_id)
-    if not detail:
-        raise HTTPException(status_code=404, detail=f"Run '{request.run_id}' introuvable")
+    # S59 fix : si pas de run_id (contexte général Laboratoire), continuer sans détail
+    detail = read_run_detail(request.run_id) if request.run_id else None
 
     return StreamingResponse(
         stream_ai_response(request, detail),
@@ -239,16 +280,68 @@ def get_chart_data(run_id: str, asset: str | None = None, tf: str | None = None)
     instrument = asset or detail.universe.instrument
     timeframe = tf or detail.universe.timeframe
 
-    # Resolve trading-lab data path (results/runs/ symlinks → trading-lab/results/runs/)
+    # Resolve trading-lab data path
     runs_dir = get_runs_dir()
     trading_lab_root = runs_dir.resolve().parent.parent
+    data_dir = trading_lab_root / "data"
+
+    # ── Try 1 : pipeline twelvedata (format ETF/forex propre) ─────────────────
     tf_normalized = timeframe.replace("m", "min") if timeframe.endswith("m") else timeframe
-    csv_path = trading_lab_root / "data" / "long_data" / f"twelvedata_{tf_normalized}" / f"{instrument}_{tf_normalized}.csv"
+    csv_path = data_dir / "long_data" / f"twelvedata_{tf_normalized}" / f"{instrument}_{tf_normalized}.csv"
 
-    if not csv_path.exists():
-        raise HTTPException(status_code=404, detail=f"Data file not found: {csv_path.name}")
+    df = None
+    if csv_path.exists():
+        df = pd.read_csv(csv_path, parse_dates=["datetime"], index_col="datetime")
 
-    df = pd.read_csv(csv_path, parse_dates=["datetime"], index_col="datetime")
+    # ── Try 2 : fallback fichiers TradingView legacy ──────────────────────────
+    # Mapping instrument → préfixe TV
+    if df is None:
+        tv_prefix_map = {
+            "ES":  "CME_MINI_ES1!",
+            "NQ":  "CME_MINI_NQ1!",
+            "YM":  "CBOT_YM1!",
+            "RTY": "CME_MINI_RTY1!",
+            "CL":  "NYMEX_CL1!",
+            "GC":  "COMEX_GC1!",
+            "BTC": "BINANCE_BTCUSDT",
+            "BTCUSD": "BINANCE_BTCUSDT",
+            "ETH": "BINANCE_ETHUSDT",
+            "ETHUSD": "BINANCE_ETHUSDT",
+            "SOL": "BINANCE_SOLUSD",
+            "ADA": "BINANCE_ADAUSD",
+            "XRP": "BINANCE_XRPUSD",
+        }
+        # TF → suffixe TV (TradingView export format)
+        tf_suffix_map = {
+            "1m": "1", "2m": "2", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+            "1h": "60", "2h": "120", "4h": "240",
+            "1d": "1D", "1D": "1D",
+            "1w": "1W", "1W": "1W",
+        }
+        prefix = tv_prefix_map.get(instrument.upper(), instrument)
+        tv_tf = tf_suffix_map.get(timeframe, timeframe)
+
+        # Essayer plusieurs patterns nom de fichier TV
+        candidates = [
+            data_dir / f"{prefix}, {tv_tf}.csv",
+            data_dir / f"{prefix}_{tv_tf}.csv",
+            data_dir / f"{prefix}, {tv_tf}_RTH.csv",
+        ]
+        for c in candidates:
+            if c.exists():
+                csv_path = c
+                df_raw = pd.read_csv(c)
+                # Format TV : colonnes "time, open, high, low, close, Volume" avec timestamp Unix
+                if "time" in df_raw.columns:
+                    df_raw["datetime"] = pd.to_datetime(df_raw["time"], unit="s")
+                    df_raw = df_raw.set_index("datetime")
+                    df_raw = df_raw.rename(columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"})
+                    df = df_raw
+                break
+
+    if df is None:
+        raise HTTPException(status_code=404, detail=f"Data file not found for {instrument} {timeframe}")
+
     if df.index.tz is not None:
         df.index = df.index.tz_localize(None)
 
@@ -335,6 +428,385 @@ def get_pine_script(run_id: str):
         "file_size_bytes": pine_path.stat().st_size,
     }
 
+
+
+
+@app.post("/runs/{run_id}/activate")
+def activate_run(run_id: str, body: ActivateRequest):
+    """Active/désactive une stratégie dans une destination (modifie meta.json d033.deployment_stage)."""
+    VALID = {"rd", "paper", "broker", "propfirm", "challenge_z"}
+    if body.destination not in VALID:
+        raise HTTPException(status_code=400, detail=f"destination doit être l'une de {VALID}")
+
+    runs_dir = get_runs_dir()
+    meta_path = runs_dir / run_id / "meta.json"
+    if not meta_path.exists():
+        raise HTTPException(status_code=404, detail=f"meta.json introuvable pour run '{run_id}'")
+
+    from datetime import datetime
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"meta.json invalide: {e}")
+
+    meta.setdefault("d033", {})
+    previous_stage = meta["d033"].get("deployment_stage", "rd")
+    meta["d033"]["deployment_stage"] = body.destination
+    meta["d033"]["activated_at"] = datetime.now().isoformat()
+    meta["d033"].setdefault("schema_version", "1.0.0")
+
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Broadcast SSE pour refresh frontend live
+    try:
+        _broadcast(run_id)
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "previous_stage": previous_stage,
+        "deployment_stage": body.destination,
+        "activated_at": meta["d033"]["activated_at"],
+    }
+
+
+
+# ─── Paper Trader Native — orchestration (S59 Phase B) ──────────────────────
+@app.post("/paper-trader/{run_id}/start")
+def paper_trader_start(run_id: str):
+    """Démarre le paper trader natif pour un run (subprocess Python)."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    orchestrator = trading_lab_root / "tools" / "paper_orchestrator.py"
+    if not orchestrator.exists():
+        raise HTTPException(status_code=500, detail=f"paper_orchestrator.py introuvable : {orchestrator}")
+    try:
+        _sys.path.insert(0, str(trading_lab_root / "tools"))
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        result = paper_orchestrator.start(run_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur start : {e}")
+
+
+@app.post("/paper-trader/{run_id}/stop")
+def paper_trader_stop(run_id: str):
+    """Stoppe le paper trader natif pour un run."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    _sys.path.insert(0, str(trading_lab_root / "tools"))
+    try:
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        return paper_orchestrator.stop(run_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur stop : {e}")
+
+
+@app.get("/paper-trader/{run_id}/status")
+def paper_trader_status(run_id: str):
+    """Retourne le statut + état + dernier trade du paper trader pour un run."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    _sys.path.insert(0, str(trading_lab_root / "tools"))
+    try:
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        return paper_orchestrator.status(run_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur status : {e}")
+
+
+@app.get("/paper-trader/list")
+def paper_trader_list_running():
+    """Liste tous les paper traders actuellement actifs."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    _sys.path.insert(0, str(trading_lab_root / "tools"))
+    try:
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        return paper_orchestrator.list_running()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur list : {e}")
+
+
+@app.get("/live-indicators/{symbol}/{tf}")
+def get_live_indicators(
+    symbol: str, tf: str,
+    ema: int | None = None,
+    bb_length: int | None = None,
+    bb_mult: float | None = 2.0,
+    rsi_length: int | None = None,
+    avwap: bool = False,
+    volume_profile: bool = False,
+    limit: int = 200,
+):
+    """Calcule les indicateurs techniques sur bougies live yfinance. S59 chart overlays."""
+    YF_MAP = {
+        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA",
+        "ES":"ES=F","NQ":"NQ=F","YM":"YM=F","RTY":"RTY=F",
+        "CL":"CL=F","GC":"GC=F","SI":"SI=F",
+        "BTC":"BTC-USD","BTCUSD":"BTC-USD","BTCUSDT":"BTC-USD",
+        "ETH":"ETH-USD","ETHUSD":"ETH-USD","ETHUSDT":"ETH-USD",
+        "EURUSD":"EURUSD=X","GBPUSD":"GBPUSD=X","USDJPY":"USDJPY=X",
+    }
+    TF_MAP = {
+        "1m":("1m","2d"),"2m":("2m","5d"),"5m":("5m","30d"),
+        "15m":("15m","60d"),"30m":("30m","60d"),
+        "1h":("60m","60d"),"60m":("60m","60d"),
+        "1d":("1d","2y"),"1D":("1d","2y"),
+    }
+    yf_sym = YF_MAP.get(symbol.upper(), symbol)
+    yf_interval, period = TF_MAP.get(tf.lower(), ("15m", "60d"))
+    try:
+        import yfinance as yf
+        import pandas as pd
+        t = yf.Ticker(yf_sym)
+        h = t.history(period=period, interval=yf_interval)
+        if h.empty:
+            return {"ok": False, "error": "no data"}
+        if hasattr(h.index, "tz") and h.index.tz is not None:
+            h.index = h.index.tz_localize(None)
+        df = h.tail(limit).copy()
+        close = df["Close"]
+        out = {"ok": True, "symbol": symbol.upper(), "tf": tf, "indicators": {}}
+        ts_series = [int(ts.timestamp()) for ts in df.index]
+
+        # EMA
+        if ema and ema > 1:
+            ema_vals = close.ewm(span=ema, adjust=False).mean()
+            out["indicators"]["ema"] = {
+                "length": ema,
+                "points": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, ema_vals) if not pd.isna(v)],
+            }
+
+        # Bollinger Bands
+        if bb_length and bb_length > 1:
+            ma = close.rolling(bb_length).mean()
+            std = close.rolling(bb_length).std()
+            upper = ma + (bb_mult or 2.0) * std
+            lower = ma - (bb_mult or 2.0) * std
+            out["indicators"]["bb"] = {
+                "length": bb_length, "mult": bb_mult,
+                "upper": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, upper) if not pd.isna(v)],
+                "middle": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, ma) if not pd.isna(v)],
+                "lower": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, lower) if not pd.isna(v)],
+            }
+
+        # AVWAP (Anchored à la 1ère bougie reçue — simplification)
+        if avwap:
+            tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
+            cum_vol = df["Volume"].cumsum()
+            cum_vp = (tp * df["Volume"]).cumsum()
+            vwap_vals = cum_vp / cum_vol.replace(0, 1)
+            out["indicators"]["avwap"] = {
+                "anchored_at": ts_series[0] if ts_series else None,
+                "points": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, vwap_vals) if not pd.isna(v)],
+            }
+
+        # Volume Profile (POC, VAH, VAL des N dernières sessions)
+        if volume_profile:
+          try:
+            df_vp = df.copy()
+            df_vp["_session"] = df_vp.index.normalize()
+            sessions_data = []
+            for sess_date, sess_df in df_vp.groupby("_session"):
+                if len(sess_df) < 5:
+                    continue
+                s_high = float(sess_df["High"].max())
+                s_low = float(sess_df["Low"].min())
+                if s_high == s_low:
+                    continue
+                n_b = 50
+                import numpy as _np
+                edges = _np.linspace(s_low, s_high, n_b + 1)
+                centers = (edges[:-1] + edges[1:]) / 2
+                vols = _np.zeros(n_b)
+                for _, row in sess_df.iterrows():
+                    bl, bh, bv = float(row["Low"]), float(row["High"]), float(row["Volume"])
+                    if bh == bl:
+                        idx = max(0, min(n_b - 1, _np.searchsorted(edges, bl) - 1))
+                        vols[idx] += bv
+                        continue
+                    i_lo = max(0, _np.searchsorted(edges, bl) - 1)
+                    i_hi = min(n_b - 1, _np.searchsorted(edges, bh) - 1)
+                    n_cov = i_hi - i_lo + 1
+                    if n_cov <= 0:
+                        continue
+                    per_bin = bv / n_cov
+                    for kk in range(i_lo, i_hi + 1):
+                        vols[kk] += per_bin
+                tot = vols.sum()
+                if tot == 0:
+                    continue
+                poc_idx = int(_np.argmax(vols))
+                poc = float(centers[poc_idx])
+                target = tot * 0.70
+                cum = vols[poc_idx]
+                lo, hi = poc_idx, poc_idx
+                while cum < target and (lo > 0 or hi < n_b - 1):
+                    vu = vols[hi + 1] if hi < n_b - 1 else -1
+                    vd = vols[lo - 1] if lo > 0 else -1
+                    if vu >= vd and vu >= 0:
+                        hi += 1
+                        cum += vu
+                    elif vd > 0:
+                        lo -= 1
+                        cum += vd
+                    else:
+                        break
+                vah = float(centers[hi])
+                val = float(centers[lo])
+                sessions_data.append({
+                    "session_date": sess_date.strftime("%Y-%m-%d"),
+                    "session_ts": int(sess_date.timestamp()),
+                    "poc": round(poc, 2), "vah": round(vah, 2), "val": round(val, 2),
+                    "high": round(s_high, 2), "low": round(s_low, 2),
+                })
+            # Garde les 5 dernières
+            out["indicators"]["volume_profile"] = {"sessions": sessions_data[-5:]}
+          except Exception as e:
+            pass
+
+        # RSI (calcul standard 14 par défaut)
+        if rsi_length and rsi_length > 1:
+            delta = close.diff()
+            gain = delta.where(delta > 0, 0.0)
+            loss = -delta.where(delta < 0, 0.0)
+            avg_gain = gain.ewm(alpha=1/rsi_length, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/rsi_length, adjust=False).mean()
+            rs = avg_gain / avg_loss.replace(0, 1e-10)
+            rsi_vals = 100 - (100 / (1 + rs))
+            out["indicators"]["rsi"] = {
+                "length": rsi_length,
+                "points": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, rsi_vals) if not pd.isna(v)],
+            }
+
+        return out
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/live-bars/{symbol}/{tf}")
+def get_live_bars(symbol: str, tf: str, limit: int = 200):
+    """Retourne les N dernières bougies yfinance pour un instrument + TF. S59 live chart."""
+    YF_MAP = {
+        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA",
+        "ES":"ES=F","NQ":"NQ=F","YM":"YM=F","RTY":"RTY=F",
+        "CL":"CL=F","GC":"GC=F","SI":"SI=F",
+        "BTC":"BTC-USD","BTCUSD":"BTC-USD","BTCUSDT":"BTC-USD",
+        "ETH":"ETH-USD","ETHUSD":"ETH-USD","ETHUSDT":"ETH-USD",
+        "EURUSD":"EURUSD=X","GBPUSD":"GBPUSD=X","USDJPY":"USDJPY=X",
+    }
+    TF_MAP = {
+        "1m":("1m","2d"), "2m":("2m","5d"), "5m":("5m","30d"),
+        "15m":("15m","60d"), "30m":("30m","60d"),
+        "1h":("60m","60d"), "60m":("60m","60d"),
+        "1d":("1d","2y"), "1D":("1d","2y"),
+    }
+    yf_sym = YF_MAP.get(symbol.upper(), symbol)
+    yf_interval, period = TF_MAP.get(tf.lower(), ("15m", "60d"))
+    try:
+        import yfinance as yf
+        t = yf.Ticker(yf_sym)
+        h = t.history(period=period, interval=yf_interval)
+        if h.empty:
+            return {"ok": False, "error": "no data"}
+        if hasattr(h.index, "tz") and h.index.tz is not None:
+            h.index = h.index.tz_localize(None)
+        bars = []
+        for ts, row in h.tail(limit).iterrows():
+            bars.append({
+                "time": int(ts.timestamp()),
+                "open": round(float(row["Open"]), 2),
+                "high": round(float(row["High"]), 2),
+                "low": round(float(row["Low"]), 2),
+                "close": round(float(row["Close"]), 2),
+                "volume": int(row["Volume"]) if not (row["Volume"] is None or (isinstance(row["Volume"], float) and (row["Volume"] != row["Volume"]))) else 0,
+            })
+        return {"ok": True, "symbol": symbol.upper(), "tf": tf, "yf_symbol": yf_sym, "bars": bars}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/price/{symbol}")
+def get_live_price(symbol: str):
+    """Retourne le prix yfinance actuel pour un instrument. S59 live widget."""
+    YF_MAP = {
+        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA",
+        "ES":"ES=F","NQ":"NQ=F","YM":"YM=F","RTY":"RTY=F",
+        "CL":"CL=F","GC":"GC=F","SI":"SI=F",
+        "BTC":"BTC-USD","BTCUSD":"BTC-USD","BTCUSDT":"BTC-USD",
+        "ETH":"ETH-USD","ETHUSD":"ETH-USD","ETHUSDT":"ETH-USD",
+        "EURUSD":"EURUSD=X","GBPUSD":"GBPUSD=X","USDJPY":"USDJPY=X",
+    }
+    yf_sym = YF_MAP.get(symbol.upper(), symbol)
+    try:
+        import yfinance as yf
+        t = yf.Ticker(yf_sym)
+        h = t.history(period="2d", interval="1m")
+        if h.empty:
+            return {"ok": False, "error": "no data"}
+        last = h.iloc[-1]
+        first = h.iloc[0]
+        last_close = float(last["Close"])
+        first_open = float(first["Open"])
+        change_pct = ((last_close - first_open) / first_open) * 100 if first_open else 0
+        return {
+            "ok": True,
+            "symbol": symbol.upper(),
+            "yf_symbol": yf_sym,
+            "price": round(last_close, 2),
+            "change_pct": round(change_pct, 3),
+            "ts": last.name.isoformat() if hasattr(last.name, "isoformat") else str(last.name),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/runs/{run_id}/paper-data")
+def get_paper_data(run_id: str):
+    """Retourne paper_trades.csv (liste) + paper_state.json (KPIs live) d'un run."""
+    runs_dir = get_runs_dir()
+    run_dir = runs_dir / run_id
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' introuvable")
+
+    state_file = run_dir / "paper_state.json"
+    trades_csv = run_dir / "paper_trades.csv"
+
+    out = {"run_id": run_id, "state": None, "trades": [], "has_data": False}
+    if state_file.exists():
+        try:
+            out["state"] = json.loads(state_file.read_text())
+            out["has_data"] = True
+        except Exception:
+            pass
+    if trades_csv.exists():
+        try:
+            import pandas as _pd
+            df = _pd.read_csv(trades_csv)
+            out["trades"] = df.to_dict(orient="records")
+            out["has_data"] = True
+        except Exception:
+            pass
+    return out
 
 
 @app.get("/scout/sources")

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import AIAssistantDrawer from "@/components/ai/AIAssistantDrawer";
+import ActivationToast from "@/components/layout/ActivationToast";
 
 export const metadata: Metadata = {
   title: "Trading Lab",
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
         </main>
         <AIAssistantDrawer />
+        <ActivationToast />
       </body>
     </html>
   );

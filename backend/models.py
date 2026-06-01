@@ -26,7 +26,9 @@ class KPIsPeriod(BaseModel):
 
 
 class KPIsByPeriod(BaseModel):
-    """KPIs par fenêtre — drift detection."""
+    """KPIs par fenêtre — drift detection (scalping: 1d/1w/1m/3m, swing: 1m/3m/6m/12m)."""
+    d1: KPIsPeriod | None = Field(None, alias="1d")
+    w1: KPIsPeriod | None = Field(None, alias="1w")
     m1: KPIsPeriod | None = Field(None, alias="1m")
     m3: KPIsPeriod | None = Field(None, alias="3m")
     m6: KPIsPeriod | None = Field(None, alias="6m")
@@ -46,9 +48,10 @@ class D033Eligibility(BaseModel):
 
 
 class D033(BaseModel):
-    """Classification canonique D-033 (3 dimensions)."""
+    """Classification canonique D-033 (3 dimensions + style)."""
     tier_davey: str = "Archive"           # STATISTICALLY_ROBUST / HIGH / MEDIUM / LOW / Archive
     deployment_stage: str = "rd"          # rd / backtest_validated / paper / broker / propfirm / challenge_z
+    style: str = "swing"                  # scalping / swing — détermine fenêtres KPIs affichées
     eligibility: D033Eligibility = D033Eligibility()
     schema_version: str = "1.0.0"
     computed_at: str = ""
@@ -120,3 +123,8 @@ class SuggestionSave(BaseModel):
     prompt: str
     response: str
     template: Optional[str] = None
+
+
+class ActivateRequest(BaseModel):
+    """Active une stratégie dans une destination (modifie meta.json d033.deployment_stage)."""
+    destination: str  # "rd" | "paper" | "broker" | "propfirm" | "challenge_z"

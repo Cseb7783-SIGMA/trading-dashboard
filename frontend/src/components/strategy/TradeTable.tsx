@@ -1,18 +1,48 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide } from "lucide-react";
 import type { Trade } from "@/lib/types";
 
 const PAGE = 20;
 
 export default function TradeTable({ trades }: { trades: Trade[] }) {
   const [page, setPage] = useState(0);
-  const slice = trades.slice(page * PAGE, (page + 1) * PAGE);
-  const pages = Math.ceil(trades.length / PAGE);
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  // Tri par date d'entrée (par défaut DESC pour matcher le chart qui montre les bougies les plus récentes)
+  const sortedTrades = useMemo(() => {
+    const arr = [...trades];
+    arr.sort((a, b) => {
+      const da = new Date(a.entry_dt).getTime();
+      const db = new Date(b.entry_dt).getTime();
+      return sortDir === "desc" ? db - da : da - db;
+    });
+    return arr;
+  }, [trades, sortDir]);
+
+  const slice = sortedTrades.slice(page * PAGE, (page + 1) * PAGE);
+  const pages = Math.ceil(sortedTrades.length / PAGE);
+
+  // Reset page quand on change le tri pour éviter de tomber hors limites
+  function toggleSort() {
+    setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    setPage(0);
+  }
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-xs text-muted uppercase tracking-wider">Trades ({trades.length})</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted uppercase tracking-wider">Trades ({trades.length})</span>
+          <button
+            onClick={toggleSort}
+            className="text-[10px] text-muted hover:text-text flex items-center gap-1 px-2 py-0.5 rounded border border-border hover:border-blue/40 transition-colors"
+            title="Basculer ordre chronologique"
+          >
+            {sortDir === "desc" ? <ArrowDownWideNarrow size={11} /> : <ArrowUpNarrowWide size={11} />}
+            {sortDir === "desc" ? "Plus récents" : "Plus anciens"}
+          </button>
+        </div>
         {pages > 1 && (
           <div className="flex items-center gap-2 text-xs text-muted">
             <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="hover:text-text disabled:opacity-30">←</button>
