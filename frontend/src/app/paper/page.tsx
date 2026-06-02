@@ -367,15 +367,33 @@ export default function PaperTradePage() {
                           <span>{s.name}</span>
                           <span className="text-muted text-xs font-normal">{s.version}</span>
                           {/* Badge Scout H1 (variantes issues du scout proactif) */}
-                          {(s.tags?.some((t: string) => t.toLowerCase().includes("scout_h") || t.toLowerCase().includes("scout-h"))
-                            || s.name.toLowerCase().includes("_short_only")
-                            || s.name.toLowerCase().includes("_short_skip_")) && (
-                            <span
-                              title="Variante générée automatiquement par le Scout Proactif (T-42). Issue d'une hypothèse détectée sur les paper traders existants, ex: isolation d'un trigger très performant."
-                              className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 cursor-help">
-                              💡 SCOUT H1
-                            </span>
-                          )}
+                          {(() => {
+                            const nameLower = s.name.toLowerCase();
+                            const isScout = s.tags?.some((t: string) => t.toLowerCase().includes("scout_h") || t.toLowerCase().includes("scout-h"))
+                              || nameLower.includes("_short_only")
+                              || nameLower.includes("_short_skip_");
+                            if (!isScout) return null;
+                            // Détecter version d'itération scout (V1 = isolation, V2 = raffinement skip lunch, etc.)
+                            let iter = "";
+                            if (nameLower.includes("_short_only")) iter = "V1";
+                            else if (nameLower.includes("_short_skip_lunch")) iter = "V2";
+                            else if (nameLower.includes("_short_skip_")) iter = "V3+";
+                            const tooltipBase = "Variante générée automatiquement par le Scout Proactif (T-42). Issue d'une hypothèse détectée sur les paper traders existants.";
+                            const tooltipIter = iter === "V1"
+                              ? " V1 = isolation du trigger seul (1ère itération scout)."
+                              : iter === "V2"
+                              ? " V2 = V1 + raffinement (skip Lunch+PM, détecté par stratification intraday)."
+                              : iter
+                              ? " Raffinement scout au-delà de V2."
+                              : "";
+                            return (
+                              <span
+                                title={tooltipBase + tooltipIter}
+                                className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 cursor-help">
+                                💡 SCOUT H1{iter ? ` ${iter}` : ""}
+                              </span>
+                            );
+                          })()}
                           {/* Badge Top PF (rank 1) */}
                           {rank === 1 && (
                             <span
