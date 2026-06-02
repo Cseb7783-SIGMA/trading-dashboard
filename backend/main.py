@@ -546,6 +546,58 @@ def paper_trader_list_running():
         raise HTTPException(status_code=500, detail=f"Erreur list : {e}")
 
 
+# ─── Pause / Resume global (S60) ────────────────────────────────────────────
+@app.post("/paper-trader/pause-all")
+def paper_trader_pause_all():
+    """Stop tous les paper traders actifs (off-hours / weekend). Sauvegarde la liste pour resume."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    _sys.path.insert(0, str(trading_lab_root / "tools"))
+    try:
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        return paper_orchestrator.pause_all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur pause-all : {e}")
+
+
+@app.post("/paper-trader/resume-all")
+def paper_trader_resume_all():
+    """Reprend tous les paper traders qui étaient actifs avant la pause."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    _sys.path.insert(0, str(trading_lab_root / "tools"))
+    try:
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        return paper_orchestrator.resume_all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur resume-all : {e}")
+
+
+@app.get("/paper-trader/pause-status")
+def paper_trader_pause_status():
+    """Retourne l'état pause global (paused: bool, run_ids: [...], paused_at: iso)."""
+    import sys as _sys
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    _sys.path.insert(0, str(trading_lab_root / "tools"))
+    try:
+        import importlib
+        if "paper_orchestrator" in _sys.modules:
+            importlib.reload(_sys.modules["paper_orchestrator"])
+        import paper_orchestrator
+        return paper_orchestrator.pause_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur pause-status : {e}")
+
+
 @app.get("/live-indicators/{symbol}/{tf}")
 def get_live_indicators(
     symbol: str, tf: str,
