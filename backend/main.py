@@ -1012,6 +1012,110 @@ def update_scout_item_status(filename: str, new_status: str):
 
 
 
+# ── Scout Trader Discovery (T-43 — watchlist 33 traders) ──────────────────
+
+@app.get("/scout/traders/watchlist")
+def scout_traders_watchlist():
+    """Retourne la watchlist des traders pour le Trader Discovery Pipeline (T-43).
+
+    Lit docs/scout/trader_watchlist.yaml depuis le repo trading-lab et calcule
+    le score de priorité pour chaque trader (mode watching uniquement).
+
+    Returns:
+        - meta : statistiques (total, par statut)
+        - traders : liste complète avec scores
+        - top_candidates : top 3 candidats à investiguer
+    """
+    import sys as _sys
+    from datetime import datetime
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    watchlist_path = trading_lab_root / "docs" / "scout" / "trader_watchlist.yaml"
+
+    if not watchlist_path.exists():
+        raise HTTPException(status_code=404, detail=f"Watchlist introuvable : {watchlist_path}")
+
+    try:
+        import yaml
+        data = yaml.safe_load(watchlist_path.read_text())
+    except ImportError:
+        # Fallback minimal parser
+        data = {"traders": []}
+        current = None
+        for line in watchlist_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- id:"):
+                if current:
+                    data["traders"].append(current)
+                current = {"id": stripped.split(":", 1)[1].strip()}
+            elif current and ":" in stripped and not stripped.startswith("#"):
+                key, _, val = stripped.partition(":")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key in ("name", "paradigm", "status", "last_check", "skip_reason", "notes"):
+                    current[key] = val
+        if current:
+            data["traders"].append(current)
+
+    traders = data.get("traders", [])
+
+    # Score de priorité (même logique que tools/trader_discovery_scan.py)
+    def score(t):
+        status = t.get("status", "watching")
+        if status == "skip":
+            return -1
+        if status == "catalogued":
+            return 0
+        s = 40
+        last_check_str = t.get("last_check", "2020-01-01")
+        try:
+            last_check = datetime.strptime(last_check_str, "%Y-%m-%d")
+            days = (datetime.utcnow() - last_check).days
+            if days > 60: s += 30
+            elif days > 21: s += 20
+            elif days > 7: s += 10
+        except Exception:
+            s += 20
+        combined = (t.get("paradigm", "") + " " + t.get("notes", "")).lower()
+        kw_pro = ["ict", "smc", "volume profile", "order flow", "auction", "anchored vwap",
+                  "liquidity", "session", "london", "killzone"]
+        if any(k in combined for k in kw_pro):
+            s += 15
+        if any(x in combined for x in ["futures", "forex", "es ", "nq ", "eurusd", "gbpusd"]):
+            s += 10
+        return s
+
+    enriched = []
+    for t in traders:
+        sc = score(t)
+        t2 = dict(t)
+        t2["priority_score"] = sc
+        enriched.append(t2)
+
+    # Top candidates (status=watching, score décroissant)
+    top = sorted(
+        [t for t in enriched if t.get("status") == "watching"],
+        key=lambda x: x.get("priority_score", 0),
+        reverse=True
+    )[:3]
+
+    # Stats
+    by_status = {}
+    for t in enriched:
+        st = t.get("status", "unknown")
+        by_status[st] = by_status.get(st, 0) + 1
+
+    return {
+        "meta": {
+            "total": len(enriched),
+            "by_status": by_status,
+            "last_audit": data.get("meta", {}).get("last_audit_date"),
+        },
+        "traders": enriched,
+        "top_candidates": top,
+    }
+
+
 # ── Scout Quick Analyzer (T-38 — auto-screening via Claude Haiku) ──────────
 
 @app.post("/scout/analyze/{filename}")

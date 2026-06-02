@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import ThemeToggle from "./ThemeToggle";
-import PaperPauseControl from "./PaperPauseControl";
 
 type NavItem = {
   href: string;
@@ -117,11 +116,6 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
-
-      {/* Paper Pause Control (S60) */}
-      <div className="border-t border-border">
-        <PaperPauseControl />
-      </div>
 
       {/* Theme toggle */}
       <div className="px-3 py-2 border-t border-border">

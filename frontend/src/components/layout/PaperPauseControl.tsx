@@ -91,17 +91,17 @@ export default function PaperPauseControl() {
           title={`${status.count || status.run_ids.length} traders pausés depuis ${status.paused_at?.slice(0, 16) || "?"}`}
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-          <span>Démarrer tous ({status.count || status.run_ids.length})</span>
+          <span>Reprendre tous ({status.count || status.run_ids.length})</span>
         </button>
       ) : (
         <button
           onClick={handlePauseAll}
           disabled={busy}
           className="w-full flex items-center justify-center gap-1.5 text-xs px-2.5 py-1.5 rounded bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-700 disabled:opacity-50 transition-colors"
-          title="Stoppe tous les paper traders actifs (utile off-hours / weekend)"
+          title="Stoppe tous les paper traders actifs. La reprise restaure uniquement ceux qui tournaient avant la pause. Utile pour pauses planifiées (weekend, vacances, maintenance)."
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Pause size={12} />}
-          <span>Pause tous (off-hours)</span>
+          <span>Pause tous</span>
         </button>
       )}
       {isPaused && (

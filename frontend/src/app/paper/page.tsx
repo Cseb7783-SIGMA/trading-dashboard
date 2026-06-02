@@ -5,6 +5,7 @@ import { FlaskConical, ChevronRight, Check, Clock, AlertTriangle, ArrowRight, Se
 import { useRuns } from "@/hooks/useRuns";
 import { paperTraderList } from "@/lib/api";
 import type { Run } from "@/lib/types";
+import PaperPauseControl from "@/components/layout/PaperPauseControl";
 
 type PaperStrategy = {
   id: string;
@@ -151,6 +152,9 @@ function runToPaperStrategy(run: Run): PaperStrategy {
     instrument: run.universe.instrument,
     timeframe: run.universe.timeframe,
     style,
+    tier_davey: run.d033?.tier_davey,
+    tags: run.tags || [],
+    created_at: run.created_at,
     paperDays: 0,
     tradesPaper: 0,
     tradesRequired: style === "scalping" ? 100 : 30,
@@ -222,13 +226,18 @@ export default function PaperTradePage() {
         <span>Paper Trade</span>
       </nav>
 
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-1">
-          <FlaskConical size={22} className="text-blue" />
-          <h1 className="text-xl font-semibold">Paper Trade</h1>
+      {/* Header avec contrôle Pause/Reprendre tous */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <FlaskConical size={22} className="text-blue" />
+            <h1 className="text-xl font-semibold">Paper Trade</h1>
+          </div>
+          <p className="text-xs text-muted mt-0.5">Validation forward live — est-ce que la réalité confirme le backtest ?</p>
         </div>
-        <p className="text-xs text-muted mt-0.5">Validation forward live — est-ce que la réalité confirme le backtest ?</p>
+        <div className="w-64">
+          <PaperPauseControl />
+        </div>
       </div>
 
       {/* Bannière explicative — différencier Paper Trade vs Laboratoire */}
@@ -354,9 +363,45 @@ export default function PaperTradePage() {
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/strategy/${encodeURIComponent(s.id)}`} className="block">
-                        <div className="font-medium group-hover:text-blue transition-colors">
-                          {s.name}
-                          <span className="ml-1.5 text-muted text-xs font-normal">{s.version}</span>
+                        <div className="font-medium group-hover:text-blue transition-colors flex items-center gap-1.5 flex-wrap">
+                          <span>{s.name}</span>
+                          <span className="text-muted text-xs font-normal">{s.version}</span>
+                          {/* Badge Scout H1 (variantes issues du scout proactif) */}
+                          {(s.tags?.some((t: string) => t.toLowerCase().includes("scout_h") || t.toLowerCase().includes("scout-h"))
+                            || s.name.toLowerCase().includes("_short_only")
+                            || s.name.toLowerCase().includes("_short_skip_")) && (
+                            <span
+                              title="Variante générée automatiquement par le Scout Proactif (T-42). Issue d'une hypothèse détectée sur les paper traders existants, ex: isolation d'un trigger très performant."
+                              className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 cursor-help">
+                              💡 SCOUT H1
+                            </span>
+                          )}
+                          {/* Badge Top PF (rank 1) */}
+                          {rank === 1 && (
+                            <span
+                              title="Meilleur Profit Factor (PF) de toutes les stratégies en paper trade. Classement basé sur PF Backtest ou PF Paper si disponible."
+                              className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 border border-yellow-300 cursor-help">
+                              👑 TOP PF
+                            </span>
+                          )}
+                          {/* Badge HIGH Tier */}
+                          {(s.tier_davey === "HIGH" || s.tier_davey === "STATISTICALLY_ROBUST") && (
+                            <span
+                              title={s.tier_davey === "STATISTICALLY_ROBUST"
+                                ? "Tier ROBUST (Davey pipeline 4/4) : PF ≥ 1.5, sample ≥ 50, Walk-Forward + Monte Carlo + OOS Strict tous validés. Niveau le plus élevé."
+                                : "Tier HIGH (Davey pipeline 3/4) : PF ≥ 1.5, sample ≥ 50, WR ≥ 50%. Robust statistiquement mais peut avoir un drift WF ou OOS marginal."}
+                              className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-300 cursor-help">
+                              ⭐ {s.tier_davey === "STATISTICALLY_ROBUST" ? "ROBUST" : "HIGH"}
+                            </span>
+                          )}
+                          {/* Badge Nouveau (< 24h) */}
+                          {s.created_at && (Date.now() - new Date(s.created_at).getTime()) < 86_400_000 && (
+                            <span
+                              title="Stratégie créée dans les dernières 24h. À surveiller : les premiers signaux paper trade sont la première validation forward."
+                              className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-300 cursor-help">
+                              🆕 NOUVEAU
+                            </span>
+                          )}
                         </div>
                       </Link>
                     </td>

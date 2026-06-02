@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Eye, RefreshCw, Plus, Sparkles, Flag, Clock, X, ExternalLink, Inbox } from "lucide-react";
+import { Eye, RefreshCw, Plus, Sparkles, Flag, Clock, X, ExternalLink, Inbox, Users, FileText } from "lucide-react";
+import ScoutTradersTab from "@/components/scout/ScoutTradersTab";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -33,6 +34,7 @@ export default function ScoutWatchPage() {
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"content"|"traders"|"briefs">("content");
   const [filter, setFilter] = useState<string>("pending");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -143,6 +145,43 @@ export default function ScoutWatchPage() {
         </div>
       </div>
 
+      {/* Onglets — S60 T-43 */}
+      <div className="flex items-center gap-1 border-b border-border mb-4">
+        <button
+          onClick={() => setActiveTab("content")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${activeTab === "content" ? "border-blue text-blue" : "border-transparent text-muted hover:text-text"}`}
+        >
+          <Inbox size={14} /> Contenu
+        </button>
+        <button
+          onClick={() => setActiveTab("traders")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${activeTab === "traders" ? "border-purple-600 text-purple-700" : "border-transparent text-muted hover:text-text"}`}
+        >
+          <Users size={14} /> Traders
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-300 font-semibold">T-43</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("briefs")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${activeTab === "briefs" ? "border-blue text-blue" : "border-transparent text-muted hover:text-text"}`}
+        >
+          <FileText size={14} /> Briefs
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-300">Bientôt</span>
+        </button>
+      </div>
+
+      {/* Tab content */}
+      {activeTab === "traders" && <ScoutTradersTab />}
+      {activeTab === "briefs" && (
+        <div className="bg-surface border border-border rounded-lg p-8 text-center">
+          <FileText size={32} className="mx-auto mb-3 text-muted opacity-50" />
+          <h3 className="text-sm font-medium mb-1">Historique des briefs</h3>
+          <p className="text-xs text-muted max-w-md mx-auto">
+            Cette section conservera l'historique des Trader Discovery Briefs générés (Implémenter / Investiguer / Skip).
+            Disponible après le premier brief approuvé par Sebast.
+          </p>
+        </div>
+      )}
+      {activeTab === "content" && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-surface border border-border rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
@@ -280,6 +319,7 @@ export default function ScoutWatchPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
