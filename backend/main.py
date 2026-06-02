@@ -529,6 +529,88 @@ def paper_trader_status(run_id: str):
         raise HTTPException(status_code=500, detail=f"Erreur status : {e}")
 
 
+@app.get("/paper-trader/activity")
+def paper_trader_activity():
+    """Retourne l'activité agrégée des paper traders (S60).
+
+    Pour chaque run en paper, retourne :
+    - trades_today : nombre de trades aujourd'hui
+    - last_trade_ts : timestamp du dernier trade (ou None)
+
+    Global :
+    - total_trades_today : somme cross-run
+    - active_runs_count : runs avec >= 1 trade aujourd'hui
+    - last_trade_global : info du tout dernier trade (run_id + ts + name)
+    """
+    import csv
+    from datetime import datetime, timezone
+
+    runs_dir = get_runs_dir()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    by_run = {}
+    total_today = 0
+    last_global = None  # {run_id, ts, exit_reason, pnl}
+
+    for run_dir in runs_dir.iterdir():
+        if not run_dir.is_dir():
+            continue
+        # Vérifie si en paper
+        meta_p = run_dir / "meta.json"
+        if not meta_p.exists():
+            continue
+        try:
+            import json as _json
+            meta = _json.loads(meta_p.read_text())
+            if meta.get("d033", {}).get("deployment_stage") != "paper":
+                continue
+        except Exception:
+            continue
+
+        trades_csv = run_dir / "paper_trades.csv"
+        if not trades_csv.exists():
+            by_run[run_dir.name] = {"trades_today": 0, "trades_total": 0, "last_trade_ts": None}
+            continue
+
+        trades_today = 0
+        trades_total = 0
+        last_ts = None
+        try:
+            with trades_csv.open() as f:
+                for row in csv.DictReader(f):
+                    trades_total += 1
+                    ts = row.get("exit_ts") or row.get("logged_at") or ""
+                    if ts.startswith(today):
+                        trades_today += 1
+                    if not last_ts or ts > last_ts:
+                        last_ts = ts
+                        if not last_global or ts > last_global.get("ts", ""):
+                            last_global = {
+                                "run_id": run_dir.name,
+                                "ts": ts,
+                                "exit_reason": row.get("exit_reason"),
+                                "pnl": row.get("pnl"),
+                            }
+        except Exception:
+            pass
+
+        by_run[run_dir.name] = {
+            "trades_today": trades_today,
+            "trades_total": trades_total,
+            "last_trade_ts": last_ts,
+        }
+        total_today += trades_today
+
+    active_count = sum(1 for v in by_run.values() if v["trades_today"] > 0)
+
+    return {
+        "total_trades_today": total_today,
+        "active_runs_count": active_count,
+        "last_trade_global": last_global,
+        "by_run": by_run,
+    }
+
+
 @app.get("/paper-trader/list")
 def paper_trader_list_running():
     """Liste tous les paper traders actuellement actifs."""

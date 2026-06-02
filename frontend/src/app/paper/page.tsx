@@ -17,6 +17,8 @@ type PaperStrategy = {
   paperDays: number;
   tradesPaper: number;
   tradesRequired: number;
+  tradesToday?: number;
+  lastTradeTs?: string | null;
   pf_backtest: number;
   pf_paper: number | null;
   pf_delta_pct: number | null;
@@ -174,6 +176,29 @@ export default function PaperTradePage() {
   const [query, setQuery] = useState("");
   const { runs, loading } = useRuns();
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [activity, setActivity] = useState<{
+    total_trades_today: number;
+    active_runs_count: number;
+    last_trade_global: { run_id: string; ts: string; exit_reason?: string; pnl?: string } | null;
+    by_run: Record<string, { trades_today: number; trades_total: number; last_trade_ts: string | null }>;
+  } | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+
+  // Fetch activity + polling 60s
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    async function refreshActivity() {
+      try {
+        const r = await fetch(`${API}/paper-trader/activity`);
+        const data = await r.json();
+        setActivity(data);
+        setLastRefresh(new Date());
+      } catch {}
+    }
+    refreshActivity();
+    const iv = setInterval(refreshActivity, 60000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Fetch running paper traders + polling 30s
   useEffect(() => {
@@ -192,10 +217,22 @@ export default function PaperTradePage() {
 
   // PAPER_STRATEGIES = runs avec deployment_stage === "paper" (vraies données live)
   // Status override : si flag paper MAIS process pas dans runningIds → "stopped"
+  // Enrichi avec trades_today depuis activity endpoint
   const PAPER_STRATEGIES: PaperStrategy[] = runs
     .filter((r) => r.d033?.deployment_stage === "paper")
     .map(runToPaperStrategy)
-    .map((s) => ({ ...s, status: runningIds.has(s.id) ? s.status : "stopped" }));
+    .map((s) => {
+      const act = activity?.by_run?.[s.id];
+      const trades_today = act?.trades_today ?? 0;
+      const trades_total = act?.trades_total ?? 0;
+      return {
+        ...s,
+        status: runningIds.has(s.id) ? s.status : "stopped",
+        tradesPaper: trades_total,
+        tradesToday: trades_today,
+        lastTradeTs: act?.last_trade_ts || null,
+      };
+    });
 
   const q = query.trim().toLowerCase();
   const matchesQuery = (s: PaperStrategy) => {
@@ -203,7 +240,14 @@ export default function PaperTradePage() {
     const hay = `${s.name} ${s.version} ${s.instrument} ${s.timeframe}`.toLowerCase();
     return hay.includes(q);
   };
-  const filtered = PAPER_STRATEGIES.filter((s) => s.style === tab && matchesQuery(s));
+  // Tri par activité décroissante (les stratégies avec trades_today en haut, puis par PF)
+  const filtered = PAPER_STRATEGIES.filter((s) => s.style === tab && matchesQuery(s))
+    .sort((a, b) => {
+      const aToday = (a as PaperStrategy).tradesToday || 0;
+      const bToday = (b as PaperStrategy).tradesToday || 0;
+      if (aToday !== bToday) return bToday - aToday;
+      return (b.pf_backtest || 0) - (a.pf_backtest || 0);
+    });
   const counts = {
     scalping: PAPER_STRATEGIES.filter((s) => s.style === "scalping" && matchesQuery(s)).length,
     swing: PAPER_STRATEGIES.filter((s) => s.style === "swing" && matchesQuery(s)).length,
@@ -354,7 +398,7 @@ export default function PaperTradePage() {
                   : s.pf_delta_pct >= -30 ? "text-amber-400"
                   : "text-red-300";
                 return (
-                  <tr key={s.id} className="border-b border-border/50 hover:bg-ink transition-colors group">
+                  <tr key={s.id} className={`border-b border-border/50 hover:bg-ink transition-colors group ${(s as any).tradesToday > 0 ? "bg-green-50/30" : ""}`}>
                     <td className="px-4 py-3 text-center">
                       {MEDAL[rank]
                         ? <span className={`text-xs font-semibold tabular-nums ${MEDAL[rank].color}`}>{MEDAL[rank].label}</span>
@@ -443,7 +487,12 @@ export default function PaperTradePage() {
                     <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.wr_backtest.toFixed(1)}%)</span></span>}</td>
                     <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.dd_backtest.toFixed(1)}%)</span></span>}</td>
                     <td className="px-4 py-3 text-right text-xs text-muted">
-                      {s.tradesPaper}/{s.tradesRequired}
+                      {(s as any).tradesToday > 0 && (
+                        <div className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-300 mb-0.5">
+                          🟢 {(s as any).tradesToday} aujourd'hui
+                        </div>
+                      )}
+                      <div>{s.tradesPaper}/{s.tradesRequired}</div>
                       <div className="text-[10px] text-muted/70">{s.paperDays}j</div>
                     </td>
                     <td className="px-4 py-3 text-right"><ActionButton status={s.status} name={s.name} /></td>
