@@ -372,7 +372,7 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [period, setPeriod] = useState<"all_time" | "12m" | "6m" | "3m" | "1m">("all_time");
   const [styleFilter, setStyleFilter] = useState<"all" | "scalping" | "swing">("all");
-  const [stageFilter, setStageFilter] = useState<"all" | "deployed">("all");
+  const [stageFilter, setStageFilter] = useState<"all" | "deployed" | "undeployed">("all");
 
   if (!runs.length) {
     return (
@@ -390,10 +390,13 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
   const deployedCount = runs.filter(r => (r.d033?.deployment_stage ?? "rd") !== "rd").length;
 
   const filteredRuns = runs.filter(r => {
-    // Filtre Stage : Déployées = deployment_stage ≠ "rd"
+    // Filtre Stage : Déployées = deployment_stage ≠ "rd", Non Déployées = "rd"
     if (stageFilter === "deployed") {
       const stage = r.d033?.deployment_stage ?? "rd";
       if (stage === "rd") return false;
+    } else if (stageFilter === "undeployed") {
+      const stage = r.d033?.deployment_stage ?? "rd";
+      if (stage !== "rd") return false;
     }
     if (styleFilter !== "all" && getStyle(r) !== styleFilter) return false;
     if (categoryFilter && categoryOf(r.universe?.instrument) !== categoryFilter) return false;
@@ -486,12 +489,13 @@ export default function Leaderboard({ runs }: { runs: Run[] }) {
         })}
       </div>
 
-      {/* Filtre Stage D-033 (Toutes / Déployées) */}
+      {/* Filtre Stage D-033 (Toutes / Déployées / Non Déployées) */}
       <div className="flex items-center gap-2 px-1">
         <span className="text-[11px] text-muted uppercase tracking-wider">Stage :</span>
         {([
-          { key: "all",      label: `Toutes (${runs.length})` },
-          { key: "deployed", label: `🚀 Déployées (${deployedCount})` },
+          { key: "all",        label: `Toutes (${runs.length})` },
+          { key: "deployed",   label: `🚀 Déployées (${deployedCount})` },
+          { key: "undeployed", label: `📦 Non Déployées (${runs.length - deployedCount})` },
         ] as const).map((s) => (
           <button
             key={s.key}

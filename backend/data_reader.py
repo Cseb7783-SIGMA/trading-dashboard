@@ -124,6 +124,7 @@ def _parse_kpis(meta: dict, kpis_raw: dict) -> KPIs:
         profit_factor=round(kpis_raw["ratios"]["profit_factor"], 3),
         win_rate=round(kpis_raw["ratios"]["win_rate"], 2),
         sharpe_ratio=round(kpis_raw["ratios"]["sharpe_ratio"], 3),
+        avg_win_loss_ratio=round(kpis_raw.get("ratios", {}).get("avg_win_loss_ratio", 0), 2),
         max_drawdown_pct=round(kpis_raw["drawdown"]["max_drawdown_pct"], 2),
         total_trades=trades,
         winning_trades=kpis_raw["trade_counts"]["winning"],

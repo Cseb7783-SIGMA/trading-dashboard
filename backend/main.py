@@ -601,11 +601,15 @@ def paper_trader_activity():
         }
         total_today += trades_today
 
-    active_count = sum(1 for v in by_run.values() if v["trades_today"] > 0)
+    # active_runs_count = nombre total de paper traders surveillés (runs paper)
+    # runs_with_trades_today = nombre qui ont effectivement tradé aujourd'hui
+    active_count = len(by_run)
+    runs_with_trades_today = sum(1 for v in by_run.values() if v["trades_today"] > 0)
 
     return {
         "total_trades_today": total_today,
         "active_runs_count": active_count,
+        "runs_with_trades_today": runs_with_trades_today,
         "last_trade_global": last_global,
         "by_run": by_run,
     }
@@ -680,10 +684,47 @@ def paper_trader_pause_status():
         raise HTTPException(status_code=500, detail=f"Erreur pause-status : {e}")
 
 
+
+@app.get("/system-health")
+def system_health():
+    """T-45 v2 — Audit autonome de tous les paper traders.
+
+    Returns:
+      {checked_at, total_paper_runs, green, yellow, red, runs: [{run_id, strategy, status, issues}]}
+    """
+    try:
+        import sys as _sys
+        import importlib
+        from pathlib import Path as _Path
+        _tl_tools = _Path("/Users/sebastiencaron/trading-lab/tools")
+        if str(_tl_tools) not in _sys.path:
+            _sys.path.insert(0, str(_tl_tools))
+        if "system_health" in _sys.modules:
+            importlib.reload(_sys.modules["system_health"])
+        from system_health import check_run, RUNS_DIR, NOW
+        audits = []
+        for run_dir in sorted(RUNS_DIR.iterdir()):
+            if run_dir.is_dir():
+                r = check_run(run_dir)
+                if "skip" not in r:
+                    audits.append(r)
+        return {
+            "checked_at": NOW.isoformat(),
+            "total_paper_runs": len(audits),
+            "green": sum(1 for a in audits if a["status"] == "GREEN"),
+            "yellow": sum(1 for a in audits if a["status"] == "YELLOW"),
+            "red": sum(1 for a in audits if a["status"] == "RED"),
+            "runs": audits,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/live-indicators/{symbol}/{tf}")
 def get_live_indicators(
     symbol: str, tf: str,
     ema: int | None = None,
+    emas: str | None = None,  # NEW : CSV multi-EMA (ex "5,20,50")
     bb_length: int | None = None,
     bb_mult: float | None = 2.0,
     rsi_length: int | None = None,
@@ -693,7 +734,7 @@ def get_live_indicators(
 ):
     """Calcule les indicateurs techniques sur bougies live yfinance. S59 chart overlays."""
     YF_MAP = {
-        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA",
+        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA","NDX":"^NDX","US100":"^NDX",
         "ES":"ES=F","NQ":"NQ=F","YM":"YM=F","RTY":"RTY=F",
         "CL":"CL=F","GC":"GC=F","SI":"SI=F",
         "BTC":"BTC-USD","BTCUSD":"BTC-USD","BTCUSDT":"BTC-USD",
@@ -722,13 +763,29 @@ def get_live_indicators(
         out = {"ok": True, "symbol": symbol.upper(), "tf": tf, "indicators": {}}
         ts_series = [int(ts.timestamp()) for ts in df.index]
 
-        # EMA
+        # EMA (single — legacy)
         if ema and ema > 1:
             ema_vals = close.ewm(span=ema, adjust=False).mean()
             out["indicators"]["ema"] = {
                 "length": ema,
                 "points": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, ema_vals) if not pd.isna(v)],
             }
+
+        # EMA Multi — S60 (ex emas=5,20,50)
+        if emas:
+            try:
+                ema_lengths = [int(x.strip()) for x in emas.split(",") if x.strip().isdigit() and int(x.strip()) > 1]
+                if ema_lengths:
+                    multi = []
+                    for el in ema_lengths:
+                        vals = close.ewm(span=el, adjust=False).mean()
+                        multi.append({
+                            "length": el,
+                            "points": [{"time": t_, "value": round(float(v), 2)} for t_, v in zip(ts_series, vals) if not pd.isna(v)],
+                        })
+                    out["indicators"]["emas"] = multi
+            except Exception:
+                pass
 
         # Bollinger Bands
         if bb_length and bb_length > 1:
@@ -841,7 +898,7 @@ def get_live_indicators(
 def get_live_bars(symbol: str, tf: str, limit: int = 200):
     """Retourne les N dernières bougies yfinance pour un instrument + TF. S59 live chart."""
     YF_MAP = {
-        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA",
+        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA","NDX":"^NDX","US100":"^NDX",
         "ES":"ES=F","NQ":"NQ=F","YM":"YM=F","RTY":"RTY=F",
         "CL":"CL=F","GC":"GC=F","SI":"SI=F",
         "BTC":"BTC-USD","BTCUSD":"BTC-USD","BTCUSDT":"BTC-USD",
@@ -883,7 +940,7 @@ def get_live_bars(symbol: str, tf: str, limit: int = 200):
 def get_live_price(symbol: str):
     """Retourne le prix yfinance actuel pour un instrument. S59 live widget."""
     YF_MAP = {
-        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA",
+        "QQQ":"QQQ","SPY":"SPY","IWM":"IWM","DIA":"DIA","NDX":"^NDX","US100":"^NDX",
         "ES":"ES=F","NQ":"NQ=F","YM":"YM=F","RTY":"RTY=F",
         "CL":"CL=F","GC":"GC=F","SI":"SI=F",
         "BTC":"BTC-USD","BTCUSD":"BTC-USD","BTCUSDT":"BTC-USD",

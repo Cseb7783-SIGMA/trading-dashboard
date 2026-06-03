@@ -38,6 +38,7 @@ export interface KPIs {
   profit_factor: number;
   win_rate: number;
   sharpe_ratio: number;
+  avg_win_loss_ratio?: number;  // RR (Risk/Reward) = avg_win / avg_loss
   max_drawdown_pct: number;
   total_trades: number;
   winning_trades: number;

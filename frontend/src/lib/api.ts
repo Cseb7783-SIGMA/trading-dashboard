@@ -145,7 +145,7 @@ export async function fetchPaperData(runId: string): Promise<PaperData> {
   return res.json();
 }
 
-export async function paperTraderList(): Promise<{ run_id: string; pid: number }[]> {
+export async function paperTraderList(): Promise<{ run_id: string; pid: number; error_state?: boolean; consecutive_errors?: number; last_error_msg?: string; last_error_ts?: string }[]> {
   const res = await fetch(`${BASE}/paper-trader/list`, { cache: "no-store" });
   if (!res.ok) throw new Error(`paperTraderList ${res.status}`);
   return res.json();
@@ -171,6 +171,7 @@ export type LiveIndicators = {
   tf?: string;
   indicators?: {
     ema?: { length: number; points: IndicatorPoint[] };
+    emas?: Array<{ length: number; points: IndicatorPoint[] }>;
     bb?: { length: number; mult: number; upper: IndicatorPoint[]; middle: IndicatorPoint[]; lower: IndicatorPoint[] };
     avwap?: { anchored_at: number; points: IndicatorPoint[] };
     rsi?: { length: number; points: IndicatorPoint[] };
@@ -178,10 +179,11 @@ export type LiveIndicators = {
   };
   error?: string;
 };
-export async function fetchLiveIndicators(symbol: string, tf: string, opts: { ema?: number; bb_length?: number; bb_mult?: number; rsi_length?: number; avwap?: boolean; volume_profile?: boolean } = {}, limit: number = 200): Promise<LiveIndicators> {
+export async function fetchLiveIndicators(symbol: string, tf: string, opts: { ema?: number; emas?: string; bb_length?: number; bb_mult?: number; rsi_length?: number; avwap?: boolean; volume_profile?: boolean } = {}, limit: number = 200): Promise<LiveIndicators> {
   const params = new URLSearchParams();
   params.set("limit", String(limit));
   if (opts.ema) params.set("ema", String(opts.ema));
+  if (opts.emas) params.set("emas", opts.emas);
   if (opts.bb_length) { params.set("bb_length", String(opts.bb_length)); params.set("bb_mult", String(opts.bb_mult ?? 2)); }
   if (opts.rsi_length) params.set("rsi_length", String(opts.rsi_length));
   if (opts.avwap) params.set("avwap", "true");

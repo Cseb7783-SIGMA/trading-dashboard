@@ -28,6 +28,9 @@ function getIndicatorsForStrategy(name?: string): { ema?: number; bb_length?: nu
   if (n.includes("range_filter")) {
     return { ema: 200 };
   }
+  if (n.includes("ema_crossover")) {
+    return { emas: "5,20,50" };
+  }
   if (n.includes("v1e") || n.includes("v1a") || n.includes("f1_")) {
     return { ema: 100 };
   }
@@ -45,6 +48,7 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
   const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
   // Indicator overlay refs
   const emaLineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const emasLinesRef = useRef<ISeriesApi<"Line">[]>([]);  // S60 multi-EMA
   const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbMiddleRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -233,6 +237,11 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
 
       // ─── Indicateurs techniques superposés ───
       // Cleanup previous indicators
+      // Multi-EMA cleanup
+      emasLinesRef.current.forEach((line) => {
+        if (chartRef.current) chartRef.current.removeSeries(line);
+      });
+      emasLinesRef.current = [];
       [emaLineRef, bbUpperRef, bbMiddleRef, bbLowerRef, avwapLineRef].forEach((ref) => {
         if (ref.current && chartRef.current) {
           chartRef.current.removeSeries(ref.current);
@@ -243,7 +252,7 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
 
       if (indResult?.ok && indResult.indicators && chartRef.current) {
         const ind = indResult.indicators;
-        // EMA
+        // EMA (single — legacy)
         if (ind.ema && ind.ema.points.length > 0) {
           const line = chartRef.current.addSeries(LineSeries, {
             color: "#F59E0B",
@@ -255,6 +264,23 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
           line.setData(ind.ema.points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
           emaLineRef.current = line;
           activeNames.push(`EMA(${ind.ema.length})`);
+        }
+        // Multi-EMA (S60 ema_crossover : 3 lignes de couleurs distinctes)
+        if (ind.emas && ind.emas.length > 0) {
+          const colors = ["#10B981", "#3B82F6", "#EF4444"];  // green/blue/red
+          ind.emas.forEach((emaCfg, idx) => {
+            if (emaCfg.points.length === 0 || !chartRef.current) return;
+            const color = colors[idx % colors.length];
+            const widthMap: Record<number, 1 | 2 | 3 | 4> = { 0: 2, 1: 2, 2: 3 };
+            const line = chartRef.current.addSeries(LineSeries, {
+              color, lineWidth: widthMap[idx] || 2,
+              priceLineVisible: false, lastValueVisible: true,
+              title: `EMA(${emaCfg.length})`,
+            });
+            line.setData(emaCfg.points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+            emasLinesRef.current.push(line);
+            activeNames.push(`EMA(${emaCfg.length})`);
+          });
         }
         // Bollinger Bands
         if (ind.bb && ind.bb.upper.length > 0) {

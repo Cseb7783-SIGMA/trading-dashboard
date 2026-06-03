@@ -24,6 +24,8 @@ type PaperStrategy = {
   pf_delta_pct: number | null;
   wr_backtest: number;
   wr_paper: number | null;
+  rr_backtest: number;
+  rr_paper: number | null;
   dd_backtest: number;
   dd_paper: number | null;
   status: "confirmed" | "in_progress" | "drift" | "stopped";
@@ -124,8 +126,15 @@ function ActionButton({ status, name }: { status: PaperStrategy["status"]; name:
       </button>
     );
   }
+  // Status in_progress ou stopped : bouton "Voir détail" → page strategy
   return (
-    <span className="text-[10px] text-muted italic">Sample en cours…</span>
+    <a
+      href={`/strategy/${encodeURIComponent(name)}`}
+      className="text-xs font-medium px-2.5 py-1 rounded bg-ink border border-border text-muted hover:text-text hover:border-border/80 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      Voir détail <ArrowRight size={10} />
+    </a>
   );
 }
 
@@ -165,6 +174,8 @@ function runToPaperStrategy(run: Run): PaperStrategy {
     pf_delta_pct: null,
     wr_backtest: (k.win_rate ?? 0) * (k.win_rate && k.win_rate <= 1 ? 100 : 1),
     wr_paper: null,
+    rr_backtest: k.avg_win_loss_ratio ?? 0,
+    rr_paper: null,
     dd_backtest: k.max_drawdown_pct ?? 0,
     dd_paper: null,
     status: "in_progress",
@@ -176,13 +187,31 @@ export default function PaperTradePage() {
   const [query, setQuery] = useState("");
   const { runs, loading } = useRuns();
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [errorTraders, setErrorTraders] = useState<{ run_id: string; consecutive_errors?: number; last_error_msg?: string; last_error_ts?: string }[]>([]);
+  const [systemHealth, setSystemHealth] = useState<{ green: number; yellow: number; red: number; total_paper_runs: number; runs: Array<{ run_id: string; strategy: string; status: string; issues: Array<{ severity: string; code: string; msg: string; sample?: string }> }> } | null>(null);
   const [activity, setActivity] = useState<{
     total_trades_today: number;
     active_runs_count: number;
+    runs_with_trades_today?: number;
     last_trade_global: { run_id: string; ts: string; exit_reason?: string; pnl?: string } | null;
     by_run: Record<string, { trades_today: number; trades_total: number; last_trade_ts: string | null }>;
   } | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+
+  // T-45 v2 — Fetch system-health + polling 60s
+  useEffect(() => {
+    const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    async function refreshHealth() {
+      try {
+        const r = await fetch(`${API}/system-health`);
+        const data = await r.json();
+        if (data && typeof data.total_paper_runs === "number") setSystemHealth(data);
+      } catch {}
+    }
+    refreshHealth();
+    const iv = setInterval(refreshHealth, 60000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Fetch activity + polling 60s
   useEffect(() => {
@@ -206,8 +235,15 @@ export default function PaperTradePage() {
       try {
         const list = await paperTraderList();
         setRunningIds(new Set(list.map((r) => r.run_id)));
+        setErrorTraders(list.filter((r) => r.error_state).map((r) => ({
+          run_id: r.run_id,
+          consecutive_errors: r.consecutive_errors,
+          last_error_msg: r.last_error_msg,
+          last_error_ts: r.last_error_ts,
+        })));
       } catch {
         setRunningIds(new Set());
+        setErrorTraders([]);
       }
     }
     refreshRunning();
@@ -285,23 +321,148 @@ export default function PaperTradePage() {
       </div>
 
       {/* Bannière explicative — différencier Paper Trade vs Laboratoire */}
-      <div className="p-3 rounded-lg bg-blue/5 border border-blue/20 text-xs">
-        <div className="flex items-start gap-2">
-          <span className="text-base">📊</span>
-          <div>
-            <div className="font-semibold text-blue">Phase 2 — Paper Trade (Validation forward live)</div>
-            <div className="text-muted mt-1">
-              <span className="font-medium">Objectif</span> : prouver que les chiffres du backtest se reproduisent en <span className="font-medium">temps réel</span>. Les stratégies tradent sur prix yfinance live (capital fictif $10k) pour accumuler un échantillon de trades forward.
+      <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-300 dark:border-blue-700 text-xs shadow-sm">
+        <div className="flex items-start gap-3">
+          <span className="text-xl">📊</span>
+          <div className="flex-1">
+            <div className="font-bold text-blue-900 dark:text-blue-200 text-sm mb-1">Phase 2 — Paper Trade (Validation forward live)</div>
+            <div className="text-blue-800 dark:text-blue-300 mt-1">
+              <span className="font-semibold">Objectif</span> : prouver que les chiffres du backtest se reproduisent en <span className="font-semibold">temps réel</span>. Les stratégies tradent sur prix yfinance live (capital fictif $10k) pour accumuler un échantillon de trades forward.
             </div>
-            <div className="text-muted mt-1.5">
-              <span className="font-medium">Critère de succès</span> : delta PF Paper vs Backtest ≥ −20% avec ≥ 100 trades (scalping) ou ≥ 30 trades (swing) → stratégie <strong>Confirmée</strong>.
+            <div className="text-blue-800 dark:text-blue-300 mt-2">
+              <span className="font-semibold">Critère de succès</span> : delta PF Paper vs Backtest ≥ −20% avec ≥ 100 trades (scalping) ou ≥ 30 trades (swing) → stratégie <strong>Confirmée</strong>.
             </div>
-            <div className="text-muted mt-1.5">
-              <span className="font-medium">Prochaine étape</span> → quand Confirmée, transférer vers <strong>Personal Broker / PropFirm / Challenge Z</strong> (capital réel engagé).
+            <div className="text-blue-800 dark:text-blue-300 mt-2">
+              <span className="font-semibold">Prochaine étape</span> → quand Confirmée, transférer vers <strong>Personal Broker / PropFirm / Challenge Z</strong> (capital réel engagé).
             </div>
           </div>
         </div>
       </div>
+
+      {/* T-45 v2 — Widget System Health (audit automatique tous les paper traders) */}
+      {systemHealth && (
+        <div className={`p-3 rounded-lg border-2 text-xs shadow-sm ${
+          systemHealth.red > 0
+            ? "bg-red-50 dark:bg-red-950/30 border-red-400"
+            : systemHealth.yellow > 0
+              ? "bg-amber-50 dark:bg-amber-950/30 border-amber-300"
+              : "bg-green-50 dark:bg-green-950/30 border-green-400"
+        }`}>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🩺</span>
+              <div>
+                <div className={`font-semibold text-sm ${
+                  systemHealth.red > 0 ? "text-red-900 dark:text-red-200"
+                    : systemHealth.yellow > 0 ? "text-amber-900 dark:text-amber-200"
+                    : "text-green-900 dark:text-green-200"
+                }`}>
+                  System Health — {systemHealth.green}/{systemHealth.total_paper_runs} OK
+                  {systemHealth.yellow > 0 && <> · 🟡 {systemHealth.yellow}</>}
+                  {systemHealth.red > 0 && <> · 🔴 {systemHealth.red}</>}
+                </div>
+                <div className="text-[11px] opacity-80 mt-0.5">
+                  Audit automatique : instrument mappable · strategy registered · module importable · log récent · pas d&apos;erreurs récentes
+                </div>
+              </div>
+            </div>
+          </div>
+          {systemHealth.runs.filter(r => r.status === "RED").length > 0 && (
+            <div className="mt-2 space-y-1">
+              {systemHealth.runs.filter(r => r.status === "RED").map(r => (
+                <div key={r.run_id} className="p-2 rounded bg-white/60 dark:bg-black/30 border border-red-300 text-[11px]">
+                  <div className="font-mono text-red-900 dark:text-red-300 truncate">{r.strategy}</div>
+                  {r.issues.filter(i => i.severity === "CRITICAL").map((iss, idx) => (
+                    <div key={idx} className="text-red-800 dark:text-red-400 mt-0.5">
+                      <span className="font-semibold">[{iss.code}]</span> {iss.msg}
+                      {iss.sample && <div className="font-mono text-[10px] opacity-70 mt-0.5">{iss.sample}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* T-45 : Bannière ROUGE — paper traders en erreur (au moins 3 ticks erronés) */}
+      {errorTraders.length > 0 && (
+        <div className="p-4 rounded-lg bg-red-100 dark:bg-red-950/40 border-2 border-red-500 text-xs shadow-md animate-pulse">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">🚨</span>
+            <div className="flex-1">
+              <div className="font-bold text-red-900 dark:text-red-200 text-sm mb-1">
+                ALERTE — {errorTraders.length} paper trader{errorTraders.length > 1 ? "s" : ""} en erreur
+              </div>
+              <div className="text-red-800 dark:text-red-300 text-[11px] mb-2">
+                Ces stratégies n'évaluent plus les signaux — trades manqués potentiels. Action requise.
+              </div>
+              <div className="space-y-1.5">
+                {errorTraders.map((e) => (
+                  <div key={e.run_id} className="p-2 rounded bg-white/60 dark:bg-black/30 border border-red-300">
+                    <div className="font-mono text-[10px] text-red-900 dark:text-red-300 truncate">{e.run_id}</div>
+                    <div className="text-red-800 dark:text-red-400 text-[11px] mt-0.5">
+                      <span className="font-semibold">{e.consecutive_errors ?? "?"} erreurs consécutives</span>
+                      {e.last_error_msg && <> · <span className="font-mono">{e.last_error_msg}</span></>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bannière activité du jour — auto-refresh 60s */}
+      {(() => {
+        const total = activity?.total_trades_today ?? 0;
+        const activeRuns = activity?.active_runs_count ?? 0;
+        const last = activity?.last_trade_global ?? null;
+        const refreshStr = lastRefresh.toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
+        const runsTraded = activity?.runs_with_trades_today ?? 0;
+        if (total > 0) {
+          return (
+            <div className="p-4 rounded-lg bg-green-100 dark:bg-green-950/40 border-2 border-green-400 dark:border-green-600 text-xs shadow-sm">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🟢</span>
+                  <div>
+                    <div className="font-semibold text-green-800">
+                      {total} trade{total > 1 ? "s" : ""} aujourd'hui sur {runsTraded} stratégie{runsTraded > 1 ? "s" : ""}
+                    </div>
+                    {last && (
+                      <div className="text-green-700 text-[11px] mt-0.5">
+                        Dernier trade : {new Date(last.ts).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}
+                        {last.exit_reason && <> · {last.exit_reason}</>}
+                        {last.pnl && <> · PnL {last.pnl}</>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="text-[10px] text-green-600">🔄 {refreshStr}</div>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 dark:border-amber-700 text-xs shadow-sm">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⏳</span>
+                <div>
+                  <div className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
+                    Aucun trade aujourd'hui
+                  </div>
+                  <div className="text-amber-800 dark:text-amber-300 mt-0.5">
+                    {activeRuns} paper trader{activeRuns > 1 ? "s" : ""} en surveillance — la bannière passera en vert dès qu'un trade déclenche
+                  </div>
+                </div>
+              </div>
+              <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">🔄 {refreshStr}</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -384,9 +545,10 @@ export default function PaperTradePage() {
                 <th className="text-left px-4 py-3">Statut</th>
                 <th className="text-right px-4 py-3">PF Paper</th>
                 <th className="text-right px-4 py-3">WR Paper</th>
+                <th className="text-right px-4 py-3">RR</th>
                 <th className="text-right px-4 py-3">DD Paper</th>
                 <th className="text-right px-4 py-3">Sample</th>
-                <th className="text-right px-4 py-3">Action</th>
+
               </tr>
             </thead>
             <tbody>
@@ -398,7 +560,7 @@ export default function PaperTradePage() {
                   : s.pf_delta_pct >= -30 ? "text-amber-400"
                   : "text-red-300";
                 return (
-                  <tr key={s.id} className={`border-b border-border/50 hover:bg-ink transition-colors group ${(s as any).tradesToday > 0 ? "bg-green-50/30" : ""}`}>
+                  <tr key={s.id} onClick={() => { window.location.href = `/strategy/${encodeURIComponent(s.id)}`; }} className={`border-b border-border/50 hover:bg-ink transition-colors group cursor-pointer ${(s as any).tradesToday > 0 ? "bg-green-50/30" : ""}`}>
                     <td className="px-4 py-3 text-center">
                       {MEDAL[rank]
                         ? <span className={`text-xs font-semibold tabular-nums ${MEDAL[rank].color}`}>{MEDAL[rank].label}</span>
@@ -471,7 +633,7 @@ export default function PaperTradePage() {
                       <span className="text-xs font-semibold">{s.instrument}</span>
                       <span className="ml-1 text-muted text-xs">{s.timeframe}</span>
                     </td>
-                    <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><StatusBadge status={s.status} />{(s.status === "confirmed" || s.status === "drift") && (<span onClick={(e) => { e.stopPropagation(); }}><ActionButton status={s.status} name={s.name} /></span>)}</div></td>
                     <td className={`px-4 py-3 text-right font-mono ${deltaColor}`}>
                       {s.pf_paper !== null ? (
                         <>
@@ -481,11 +643,12 @@ export default function PaperTradePage() {
                           )}
                         </>
                       ) : (
-                        <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.pf_backtest.toFixed(2)})</span></span>
+                        <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.pf_backtest.toFixed(2)})</span></div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.wr_backtest.toFixed(1)}%)</span></span>}</td>
-                    <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <span className="text-muted">— <span className="text-[10px] text-muted/60">(BT {s.dd_backtest.toFixed(1)}%)</span></span>}</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.wr_backtest.toFixed(1)}%)</span></div>}</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.rr_paper !== null ? s.rr_paper.toFixed(2) : <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.rr_backtest > 0 ? `1:${s.rr_backtest.toFixed(2)}` : "—"})</span></div>}</td>
+                    <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.dd_backtest.toFixed(1)}%)</span></div>}</td>
                     <td className="px-4 py-3 text-right text-xs text-muted">
                       {(s as any).tradesToday > 0 && (
                         <div className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-300 mb-0.5">
@@ -495,7 +658,7 @@ export default function PaperTradePage() {
                       <div>{s.tradesPaper}/{s.tradesRequired}</div>
                       <div className="text-[10px] text-muted/70">{s.paperDays}j</div>
                     </td>
-                    <td className="px-4 py-3 text-right"><ActionButton status={s.status} name={s.name} /></td>
+
                   </tr>
                 );
               })}

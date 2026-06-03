@@ -61,6 +61,7 @@ class KPIs(BaseModel):
     profit_factor: float
     win_rate: float
     sharpe_ratio: float
+    avg_win_loss_ratio: float = 0.0  # RR = avg winning trade $ / avg losing trade $ (S60)
     max_drawdown_pct: float
     total_trades: int
     winning_trades: int
