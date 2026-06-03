@@ -3,6 +3,7 @@ import { FolderOpen, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { useRuns } from "@/hooks/useRuns";
 import KPISummary from "@/components/overview/KPISummary";
 import Leaderboard from "@/components/overview/Leaderboard";
+import StrategyLineageView from "@/components/overview/StrategyLineageView";
 import MultiPeriodSummary from "@/components/overview/MultiPeriodSummary";
 import AccordionSection from "@/components/ui/AccordionSection";
 
@@ -74,10 +75,19 @@ export default function OverviewPage() {
           </AccordionSection>
 
           <AccordionSection
-            id="leaderboard"
-            title="Leaderboard stratégies"
-            subtitle="Classement par tier Davey (D-033) · filtres Scalping/Swing/Toutes"
+            id="lineage"
+            title="Stratégies par famille (S61)"
+            subtitle="Vue hiérarchique : Stratégie → Version → Asset · TF — avec filtres Style/Tier/Stage/Catégorie"
             defaultOpen={true}
+          >
+            <StrategyLineageView runs={runs} />
+          </AccordionSection>
+
+          <AccordionSection
+            id="leaderboard"
+            title="Leaderboard classique (legacy)"
+            subtitle="Vue plate par tier Davey (D-033) · filtres Scalping/Swing/Toutes"
+            defaultOpen={false}
           >
             <Leaderboard runs={runs} />
           </AccordionSection>

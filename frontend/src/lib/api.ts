@@ -105,6 +105,8 @@ export interface PaperTrade {
   direction: string;
   entry_price: number;
   exit_price: number;
+  sl?: number;  // S61 — niveau SL prévu à l'entrée
+  tp?: number;  // S61 — niveau TP prévu à l'entrée
   qty: number;
   pnl: number;
   exit_reason: string;

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers, type IChartApi, type ISeriesApi, type UTCTimestamp, type SeriesMarker, type Time, LineStyle } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, BaselineSeries, createSeriesMarkers, type IChartApi, type ISeriesApi, type UTCTimestamp, type SeriesMarker, type Time, LineStyle } from "lightweight-charts";
 import { fetchLiveBars, fetchPaperData, fetchLiveIndicators, type LiveBar, type PaperData, type LiveIndicators } from "@/lib/api";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
@@ -49,6 +49,8 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
   // Indicator overlay refs
   const emaLineRef = useRef<ISeriesApi<"Line"> | null>(null);
   const emasLinesRef = useRef<ISeriesApi<"Line">[]>([]);  // S60 multi-EMA
+  const closedTradeLinesRef = useRef<ISeriesApi<"Line">[]>([]);  // S61 lignes entry trades fermés
+  const closedTradeZonesRef = useRef<ISeriesApi<"Baseline">[]>([]);  // S61 zones SL/TP trades fermés
   const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbMiddleRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -98,6 +100,8 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
       entryLineRef.current = null;
       slLineRef.current = null;
       tpLineRef.current = null;
+      closedTradeLinesRef.current = [];
+      closedTradeZonesRef.current = [];
       markersApiRef.current = null;
       emaLineRef.current = null;
       bbUpperRef.current = null;
@@ -181,11 +185,131 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
         tpLineRef.current = null;
       }
 
+      // ─── Zones SL/TP pour trades fermés récents (S61 style SMC/ICT) ───
+      // Cleanup anciennes lignes + zones au refresh
+      if (chartRef.current && closedTradeLinesRef.current.length > 0) {
+        closedTradeLinesRef.current.forEach((line) => {
+          try { chartRef.current?.removeSeries(line); } catch {}
+        });
+        closedTradeLinesRef.current = [];
+      }
+      if (chartRef.current && closedTradeZonesRef.current.length > 0) {
+        closedTradeZonesRef.current.forEach((zone) => {
+          try { chartRef.current?.removeSeries(zone); } catch {}
+        });
+        closedTradeZonesRef.current = [];
+      }
+      if (paper && paper.trades && paper.trades.length > 0 && chartRef.current && data.length > 0) {
+        // Dessine les 3 derniers trades fermés en zones colorées style SMC
+        const recent = paper.trades.slice(-3);
+        const firstBarTime = data[0].time as number;
+        const lastBarTime = data[data.length - 1].time as number;
+        // Forcer interprétation UTC si pas de timezone suffix (CSV stocke "2026-06-03T12:55:00" sans Z)
+        const parseUtc = (ts: string): number => {
+          const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(ts);
+          return Math.floor(new Date(hasTz ? ts : ts + "Z").getTime() / 1000);
+        };
+        for (const t of recent) {
+          const entryTsRaw = parseUtc(t.entry_ts);
+          const exitTsRaw = parseUtc(t.exit_ts);
+          // Skip trades complètement hors range visible du chart
+          if (exitTsRaw < firstBarTime || entryTsRaw > lastBarTime) continue;
+          // Skip trades avec timestamps invalides (NaN ou entry >= exit)
+          if (!Number.isFinite(entryTsRaw) || !Number.isFinite(exitTsRaw) || entryTsRaw >= exitTsRaw) continue;
+          // Calculer TF dynamiquement pour étendre 3 bars (cohérence avec zones position ouverte)
+          const tfSec = data.length >= 2 ? ((data[1].time as number) - (data[0].time as number)) : 300;
+          // Clamp aux bornes du chart pour éviter ordre temporel cassé
+          const entryTs = Math.max(entryTsRaw, firstBarTime) as UTCTimestamp;
+          // Étendre 3 bars après l'exit (compact comme dans LuxAlgo/SMC)
+          const extendedExitTs = Math.min(exitTsRaw + 3 * tfSec, lastBarTime) as UTCTimestamp;
+          // Garantie ordre asc strict (sinon Lightweight Charts crash)
+          if ((extendedExitTs as number) <= (entryTs as number)) continue;
+          // Entry line (bleu pointillé fin, label "Entry @ X")
+          const entryLine = chartRef.current.addSeries(LineSeries, {
+            color: "#3B82F6",
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: true,
+            title: `Entry @ ${t.entry_price.toFixed(2)}`,
+          });
+          entryLine.setData([
+            { time: entryTs, value: t.entry_price },
+            { time: extendedExitTs, value: t.entry_price },
+          ]);
+          closedTradeLinesRef.current.push(entryLine);
+          // Niveaux SL/TP (fallback exit_price si pas stockés)
+          const slLevel = typeof t.sl === "number"
+            ? t.sl
+            : (t.exit_reason === "SL" ? t.exit_price : null);
+          const tpLevel = typeof t.tp === "number"
+            ? t.tp
+            : (t.exit_reason === "TP" ? t.exit_price : null);
+          // ZONE VERTE (TP) — rectangle semi-transparent entre Entry et TP
+          if (tpLevel !== null) {
+            const tpZone = chartRef.current.addSeries(BaselineSeries, {
+              baseValue: { type: "price", price: t.entry_price },
+              topLineColor: "rgba(22, 163, 74, 0.9)",
+              topFillColor1: "rgba(22, 163, 74, 0.45)",
+              topFillColor2: "rgba(22, 163, 74, 0.25)",
+              bottomLineColor: "rgba(0,0,0,0)",
+              bottomFillColor1: "rgba(0,0,0,0)",
+              bottomFillColor2: "rgba(0,0,0,0)",
+              lineWidth: 2,
+              lastValueVisible: true,
+              priceLineVisible: false,
+              priceScaleId: "right",
+              title: `TP @ ${tpLevel.toFixed(2)}`,
+            });
+            tpZone.setData([
+              { time: entryTs, value: tpLevel },
+              { time: extendedExitTs, value: tpLevel },
+            ]);
+            closedTradeZonesRef.current.push(tpZone);
+          }
+          // ZONE ROUGE (SL) — rectangle semi-transparent entre Entry et SL
+          if (slLevel !== null) {
+            const slZone = chartRef.current.addSeries(BaselineSeries, {
+              baseValue: { type: "price", price: t.entry_price },
+              topLineColor: "rgba(0,0,0,0)",
+              topFillColor1: "rgba(0,0,0,0)",
+              topFillColor2: "rgba(0,0,0,0)",
+              bottomLineColor: "rgba(220, 38, 38, 0.9)",
+              bottomFillColor1: "rgba(220, 38, 38, 0.45)",
+              bottomFillColor2: "rgba(220, 38, 38, 0.25)",
+              lineWidth: 2,
+              lastValueVisible: true,
+              priceLineVisible: false,
+              priceScaleId: "right",
+              title: `SL @ ${slLevel.toFixed(2)}`,
+            });
+            slZone.setData([
+              { time: entryTs, value: slLevel },
+              { time: extendedExitTs, value: slLevel },
+            ]);
+            closedTradeZonesRef.current.push(slZone);
+          }
+        }
+      }
+
       if (paper && paper.state?.in_position && chartRef.current) {
         const state = paper.state;
         const firstTime = data[0].time;
         const lastTime = data[data.length - 1].time;
-        // Entry line
+        // Calculer TF dynamiquement depuis 2 bars consécutifs (en secondes)
+        const tfSec = data.length >= 2 ? ((data[1].time as number) - (data[0].time as number)) : 300;
+        // Position d'entrée : si state.entry_bar_ts dispo, l'utiliser ; sinon utiliser firstTime
+        const entryBarTs = state.entry_bar_ts
+          ? Math.floor(new Date(state.entry_bar_ts + (/Z$|[+-]\d{2}:?\d{2}$/.test(state.entry_bar_ts) ? "" : "Z")).getTime() / 1000)
+          : (firstTime as number);
+        // Zone compacte : 3 bars de large à partir de l'entry, ou jusqu'au présent si déjà passé
+        const zoneStart = Math.max(entryBarTs, firstTime as number) as UTCTimestamp;
+        const zoneEnd = Math.min((entryBarTs + 3 * tfSec), lastTime as number) as UTCTimestamp;
+        // Si zone trop courte (entry au-delà du chart), fallback sur dernier bar
+        const safeZoneEnd = (zoneEnd as number) > (zoneStart as number)
+          ? zoneEnd
+          : (lastTime as UTCTimestamp);
+        // Entry line (compacte, 3 bars de large)
         if (state.entry_price) {
           const line = chartRef.current.addSeries(LineSeries, {
             color: "#3B82F6",
@@ -193,45 +317,57 @@ export default function LiveChart({ symbol, tf, runId, strategyName, height = 40
             lineStyle: LineStyle.Dashed,
             priceLineVisible: false,
             lastValueVisible: true,
-            title: "Entry",
+            title: `Entry @ ${state.entry_price.toFixed(2)}`,
           });
           line.setData([
-            { time: firstTime, value: state.entry_price },
-            { time: lastTime, value: state.entry_price },
+            { time: zoneStart, value: state.entry_price },
+            { time: safeZoneEnd, value: state.entry_price },
           ]);
           entryLineRef.current = line;
         }
-        // SL line
-        if (state.sl) {
-          const line = chartRef.current.addSeries(LineSeries, {
-            color: "#DC2626",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
+        // SL ZONE (rouge) — rectangle entre Entry et SL pour position ouverte
+        if (state.sl && state.entry_price) {
+          const slZone = chartRef.current.addSeries(BaselineSeries, {
+            baseValue: { type: "price", price: state.entry_price },
+            topLineColor: "rgba(0,0,0,0)",
+            topFillColor1: "rgba(0,0,0,0)",
+            topFillColor2: "rgba(0,0,0,0)",
+            bottomLineColor: "rgba(220, 38, 38, 0.9)",
+            bottomFillColor1: "rgba(220, 38, 38, 0.45)",
+            bottomFillColor2: "rgba(220, 38, 38, 0.25)",
+            lineWidth: 2,
             priceLineVisible: false,
             lastValueVisible: true,
-            title: "SL",
+            priceScaleId: "right",
+            title: `SL @ ${state.sl.toFixed(2)}`,
           });
-          line.setData([
-            { time: firstTime, value: state.sl },
-            { time: lastTime, value: state.sl },
+          slZone.setData([
+            { time: zoneStart, value: state.sl },
+            { time: safeZoneEnd, value: state.sl },
           ]);
-          slLineRef.current = line;
+          slLineRef.current = slZone as unknown as ISeriesApi<"Line">;
         }
-        // TP line
-        if (state.tp) {
-          const line = chartRef.current.addSeries(LineSeries, {
-            color: "#15803D",
-            lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
+        // TP ZONE (verte) — rectangle entre Entry et TP pour position ouverte
+        if (state.tp && state.entry_price) {
+          const tpZone = chartRef.current.addSeries(BaselineSeries, {
+            baseValue: { type: "price", price: state.entry_price },
+            topLineColor: "rgba(22, 163, 74, 0.9)",
+            topFillColor1: "rgba(22, 163, 74, 0.45)",
+            topFillColor2: "rgba(22, 163, 74, 0.25)",
+            bottomLineColor: "rgba(0,0,0,0)",
+            bottomFillColor1: "rgba(0,0,0,0)",
+            bottomFillColor2: "rgba(0,0,0,0)",
+            lineWidth: 2,
             priceLineVisible: false,
             lastValueVisible: true,
-            title: "TP",
+            priceScaleId: "right",
+            title: `TP @ ${state.tp.toFixed(2)}`,
           });
-          line.setData([
-            { time: firstTime, value: state.tp },
-            { time: lastTime, value: state.tp },
+          tpZone.setData([
+            { time: zoneStart, value: state.tp },
+            { time: safeZoneEnd, value: state.tp },
           ]);
-          tpLineRef.current = line;
+          tpLineRef.current = tpZone as unknown as ISeriesApi<"Line">;
         }
       }
 

@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { FlaskConical, ChevronRight, Check, Clock, AlertTriangle, ArrowRight, Search, X, Square } from "lucide-react";
 import { useRuns } from "@/hooks/useRuns";
-import { paperTraderList } from "@/lib/api";
+import { paperTraderList, fetchPaperData } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import PaperPauseControl from "@/components/layout/PaperPauseControl";
 
@@ -139,8 +139,31 @@ function ActionButton({ status, name }: { status: PaperStrategy["status"]; name:
 }
 
 
+// S61 — Calcule les KPIs Paper (PF/WR/RR/DD) à partir de la liste des trades fermés
+type PaperKpis = { pf: number | null; wr: number | null; rr: number | null; dd: number | null };
+function computeKpisFromTrades(trades: { pnl: number }[], initialCapital = 10000): PaperKpis {
+  if (!trades || trades.length === 0) return { pf: null, wr: null, rr: null, dd: null };
+  const wins = trades.filter((t) => t.pnl > 0);
+  const losses = trades.filter((t) => t.pnl < 0);
+  const totalWin = wins.reduce((s, t) => s + t.pnl, 0);
+  const totalLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+  const pf = totalLoss > 0 ? totalWin / totalLoss : (totalWin > 0 ? 999 : 0);
+  const wr = (wins.length / trades.length) * 100;
+  const avgWin = wins.length > 0 ? totalWin / wins.length : 0;
+  const avgLoss = losses.length > 0 ? totalLoss / losses.length : 0;
+  const rr = avgLoss > 0 ? avgWin / avgLoss : 0;
+  let peak = 0, cumPnl = 0, maxDD = 0;
+  for (const t of trades) {
+    cumPnl += t.pnl;
+    if (cumPnl > peak) peak = cumPnl;
+    const dd = cumPnl - peak;
+    if (dd < maxDD) maxDD = dd;
+  }
+  const ddPct = (maxDD / initialCapital) * 100;
+  return { pf, wr, rr, dd: ddPct };
+}
+
 // Convertit un Run avec deployment_stage="paper" en PaperStrategy
-// Les KPIs paper sont null pour l'instant (les agents LLM ne publient pas encore leurs trades)
 function runToPaperStrategy(run: Run): PaperStrategy {
   const tf = (run.universe.timeframe ?? "").toLowerCase();
   const tfMinutes = (() => {
@@ -185,6 +208,21 @@ function runToPaperStrategy(run: Run): PaperStrategy {
 export default function PaperTradePage() {
   const [tab, setTab] = useState<"scalping" | "swing">("scalping");
   const [query, setQuery] = useState("");
+  // S61 — Tri par colonne (null = tri par défaut Option C)
+  type SortColumn = "pf" | "wr" | "rr" | "dd" | "sample" | null;
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const handleSort = (col: Exclude<SortColumn, null>) => {
+    if (sortColumn === col) {
+      // Toggle direction
+      setSortDir(sortDir === "desc" ? "asc" : "desc");
+    } else {
+      setSortColumn(col);
+      // DD : moins = mieux donc asc par défaut. Autres : desc.
+      setSortDir(col === "dd" ? "asc" : "desc");
+    }
+  };
+  const resetSort = () => { setSortColumn(null); setSortDir("desc"); };
   const { runs, loading } = useRuns();
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
   const [errorTraders, setErrorTraders] = useState<{ run_id: string; consecutive_errors?: number; last_error_msg?: string; last_error_ts?: string }[]>([]);
@@ -197,6 +235,8 @@ export default function PaperTradePage() {
     by_run: Record<string, { trades_today: number; trades_total: number; last_trade_ts: string | null }>;
   } | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  // S61 — KPIs Paper calculés depuis les trades CSV (PF/WR/RR/DD par run)
+  const [paperKpisByRun, setPaperKpisByRun] = useState<Record<string, PaperKpis>>({});
 
   // T-45 v2 — Fetch system-health + polling 60s
   useEffect(() => {
@@ -251,6 +291,32 @@ export default function PaperTradePage() {
     return () => clearInterval(iv);
   }, []);
 
+  // S61 — Fetch KPIs Paper pour tous les runs paper en parallèle + polling 60s
+  useEffect(() => {
+    const paperRunIds = runs
+      .filter((r) => r.d033?.deployment_stage === "paper")
+      .map((r) => r.run_id);
+    if (paperRunIds.length === 0) return;
+    async function fetchAllKpis() {
+      try {
+        const results = await Promise.all(
+          paperRunIds.map(async (id) => {
+            try {
+              const data = await fetchPaperData(id);
+              return [id, computeKpisFromTrades(data.trades || [])] as const;
+            } catch {
+              return [id, { pf: null, wr: null, rr: null, dd: null }] as const;
+            }
+          })
+        );
+        setPaperKpisByRun(Object.fromEntries(results));
+      } catch {}
+    }
+    fetchAllKpis();
+    const iv = setInterval(fetchAllKpis, 60000);
+    return () => clearInterval(iv);
+  }, [runs]);
+
   // PAPER_STRATEGIES = runs avec deployment_stage === "paper" (vraies données live)
   // Status override : si flag paper MAIS process pas dans runningIds → "stopped"
   // Enrichi avec trades_today depuis activity endpoint
@@ -261,12 +327,26 @@ export default function PaperTradePage() {
       const act = activity?.by_run?.[s.id];
       const trades_today = act?.trades_today ?? 0;
       const trades_total = act?.trades_total ?? 0;
+      // S61 — KPIs Paper live depuis trades CSV
+      const kpis = paperKpisByRun[s.id];
+      const pf_paper = kpis?.pf ?? null;
+      const wr_paper = kpis?.wr ?? null;
+      const rr_paper = kpis?.rr ?? null;
+      const dd_paper = kpis?.dd ?? null;
+      const pf_delta_pct = (pf_paper !== null && s.pf_backtest > 0)
+        ? ((pf_paper - s.pf_backtest) / s.pf_backtest) * 100
+        : null;
       return {
         ...s,
         status: runningIds.has(s.id) ? s.status : "stopped",
         tradesPaper: trades_total,
         tradesToday: trades_today,
         lastTradeTs: act?.last_trade_ts || null,
+        pf_paper,
+        wr_paper,
+        rr_paper,
+        dd_paper,
+        pf_delta_pct,
       };
     });
 
@@ -276,9 +356,32 @@ export default function PaperTradePage() {
     const hay = `${s.name} ${s.version} ${s.instrument} ${s.timeframe}`.toLowerCase();
     return hay.includes(q);
   };
-  // Tri par activité décroissante (les stratégies avec trades_today en haut, puis par PF)
+  // S61 — Tri : par colonne cliquée OU Option C par défaut (Validé d'abord)
   const filtered = PAPER_STRATEGIES.filter((s) => s.style === tab && matchesQuery(s))
     .sort((a, b) => {
+      // Si une colonne est triée explicitement, prendre cette valeur
+      if (sortColumn !== null) {
+        const getVal = (s: PaperStrategy): number => {
+          switch (sortColumn) {
+            case "pf": return s.pf_paper ?? -Infinity;
+            case "wr": return s.wr_paper ?? -Infinity;
+            case "rr": return s.rr_paper ?? -Infinity;
+            case "dd": return s.dd_paper ?? -Infinity;
+            case "sample": return s.tradesPaper;
+            default: return 0;
+          }
+        };
+        const av = getVal(a);
+        const bv = getVal(b);
+        return sortDir === "desc" ? bv - av : av - bv;
+      }
+      // Tri Option C par défaut
+      const aValid = a.tradesPaper >= a.tradesRequired ? 1 : 0;
+      const bValid = b.tradesPaper >= b.tradesRequired ? 1 : 0;
+      if (aValid !== bValid) return bValid - aValid;
+      const aPaper = a.pf_paper ?? -Infinity;
+      const bPaper = b.pf_paper ?? -Infinity;
+      if (aPaper !== bPaper) return bPaper - aPaper;
       const aToday = (a as PaperStrategy).tradesToday || 0;
       const bToday = (b as PaperStrategy).tradesToday || 0;
       if (aToday !== bToday) return bToday - aToday;
@@ -527,6 +630,16 @@ export default function PaperTradePage() {
         >
           Swing <span className="text-muted font-normal">({counts.swing})</span>
         </button>
+        {/* S61 — Bouton reset tri (visible seulement si tri custom actif) */}
+        {sortColumn !== null && (
+          <button
+            onClick={resetSort}
+            className="ml-auto text-[11px] text-muted hover:text-text px-2 py-1 border border-border rounded mr-2 mb-1"
+            title="Revenir au tri par défaut (Validé d'abord)"
+          >
+            ✕ Reset tri
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -543,11 +656,21 @@ export default function PaperTradePage() {
                 <th className="text-left px-4 py-3">Stratégie</th>
                 <th className="text-left px-4 py-3">Univers</th>
                 <th className="text-left px-4 py-3">Statut</th>
-                <th className="text-right px-4 py-3">PF Paper</th>
-                <th className="text-right px-4 py-3">WR Paper</th>
-                <th className="text-right px-4 py-3">RR</th>
-                <th className="text-right px-4 py-3">DD Paper</th>
-                <th className="text-right px-4 py-3">Sample</th>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("pf")} title="Trier par PF Paper">
+                  PF Paper {sortColumn === "pf" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </th>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("wr")} title="Trier par WR Paper">
+                  WR Paper {sortColumn === "wr" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </th>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("rr")} title="Trier par RR Paper">
+                  RR {sortColumn === "rr" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </th>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("dd")} title="Trier par DD Paper (asc = meilleur)">
+                  DD Paper {sortColumn === "dd" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </th>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("sample")} title="Trier par nombre de trades">
+                  Sample {sortColumn === "sample" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </th>
 
               </tr>
             </thead>
@@ -635,27 +758,40 @@ export default function PaperTradePage() {
                     </td>
                     <td className="px-4 py-3"><div className="flex items-center gap-2"><StatusBadge status={s.status} />{(s.status === "confirmed" || s.status === "drift") && (<span onClick={(e) => { e.stopPropagation(); }}><ActionButton status={s.status} name={s.name} /></span>)}</div></td>
                     <td className={`px-4 py-3 text-right font-mono ${deltaColor}`}>
-                      {s.pf_paper !== null ? (
-                        <>
-                          {s.pf_paper.toFixed(2)}
-                          {s.pf_delta_pct !== null && (
-                            <span className="text-[10px] ml-1">({s.pf_delta_pct > 0 ? "+" : ""}{s.pf_delta_pct}%)</span>
-                          )}
-                        </>
-                      ) : (
-                        <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.pf_backtest.toFixed(2)})</span></div>
-                      )}
+                      <div className="flex flex-col items-end leading-tight">
+                        {s.pf_paper !== null ? (
+                          <span>
+                            {s.pf_paper.toFixed(2)}
+                            {s.pf_delta_pct !== null && (
+                              <span className="text-[10px] ml-1">({s.pf_delta_pct > 0 ? "+" : ""}{s.pf_delta_pct.toFixed(1)}%)</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                        <span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.pf_backtest.toFixed(2)})</span>
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{s.wr_paper !== null ? `${s.wr_paper.toFixed(1)}%` : <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.wr_backtest.toFixed(1)}%)</span></div>}</td>
-                    <td className="px-4 py-3 text-right font-mono">{s.rr_paper !== null ? s.rr_paper.toFixed(2) : <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.rr_backtest > 0 ? `1:${s.rr_backtest.toFixed(2)}` : "—"})</span></div>}</td>
-                    <td className="px-4 py-3 text-right font-mono">{s.dd_paper !== null ? `${s.dd_paper.toFixed(1)}%` : <div className="flex flex-col items-end leading-tight"><span className="text-muted">—</span><span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.dd_backtest.toFixed(1)}%)</span></div>}</td>
+                    <td className="px-4 py-3 text-right font-mono"><div className="flex flex-col items-end leading-tight">{s.wr_paper !== null ? <span>{s.wr_paper.toFixed(1)}%</span> : <span className="text-muted">—</span>}<span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.wr_backtest.toFixed(1)}%)</span></div></td>
+                    <td className="px-4 py-3 text-right font-mono"><div className="flex flex-col items-end leading-tight">{s.rr_paper !== null ? <span>{s.rr_paper.toFixed(2)}</span> : <span className="text-muted">—</span>}<span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.rr_backtest > 0 ? `1:${s.rr_backtest.toFixed(2)}` : "—"})</span></div></td>
+                    <td className="px-4 py-3 text-right font-mono"><div className="flex flex-col items-end leading-tight">{s.dd_paper !== null ? <span>{s.dd_paper.toFixed(1)}%</span> : <span className="text-muted">—</span>}<span className="text-[10px] text-muted/60 whitespace-nowrap">(BT {s.dd_backtest.toFixed(1)}%)</span></div></td>
                     <td className="px-4 py-3 text-right text-xs text-muted">
                       {(s as any).tradesToday > 0 && (
                         <div className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-300 mb-0.5">
                           🟢 {(s as any).tradesToday} aujourd'hui
                         </div>
                       )}
-                      <div>{s.tradesPaper}/{s.tradesRequired}</div>
+                      <div
+                        className="font-mono font-medium"
+                        style={{ color: s.tradesPaper >= s.tradesRequired ? "#16a34a" : "#dc2626" }}
+                        title={
+                          s.tradesPaper >= s.tradesRequired
+                            ? `Sample suffisant — KPIs Paper validés statistiquement (${s.tradesRequired} trades requis)`
+                            : `Mode test — ${s.tradesRequired - s.tradesPaper} trades restants avant validation statistique`
+                        }
+                      >
+                        {s.tradesPaper}/{s.tradesRequired}
+                      </div>
                       <div className="text-[10px] text-muted/70">{s.paperDays}j</div>
                     </td>
 
