@@ -1026,6 +1026,47 @@ def get_scout_sources():
         raise HTTPException(status_code=500, detail=f"Failed to parse registry: {e}")
 
 
+@app.post("/scout/fetch-new")
+def fetch_new_scout_content():
+    """S62 — Déclenche scout_check_new_content.py pour fetcher du nouveau contenu RSS.
+
+    Lance le worker en subprocess. Retourne stdout + summary (nb nouveaux items).
+    """
+    import subprocess
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    script = trading_lab_root / "tools" / "scout_check_new_content.py"
+    if not script.exists():
+        raise HTTPException(status_code=500, detail=f"Script not found : {script}")
+    try:
+        result = subprocess.run(
+            ["python3", str(script)],
+            cwd=str(trading_lab_root),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        # Parse output : compter "✨ N nouveaux items" si présent
+        out = result.stdout
+        new_items = 0
+        for line in out.splitlines():
+            if "nouveau" in line.lower() or "nouveaux" in line.lower():
+                import re
+                m = re.search(r"(\d+)", line)
+                if m:
+                    new_items = max(new_items, int(m.group(1)))
+        return {
+            "success": result.returncode == 0,
+            "new_items": new_items,
+            "stdout": out[-2000:],
+            "stderr": result.stderr[-500:] if result.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Fetch timeout après 120s")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch failed : {e}")
+
+
 @app.get("/scout/inbox")
 def get_scout_inbox(status: str | None = None, source: str | None = None):
     """Liste les items dans docs/scout/inbox/ (parsing markdown front-matter).
@@ -1252,6 +1293,117 @@ def scout_traders_watchlist():
         },
         "traders": enriched,
         "top_candidates": top,
+    }
+
+
+@app.post("/scout/trader/{trader_id}/skip")
+def scout_trader_skip(trader_id: str, reason: str = ""):
+    """S62 — Marque un trader comme 'skip' dans trader_watchlist.yaml avec raison.
+
+    Body : ?reason=XXX (string)
+    Marque status=skip + skip_reason + last_check à aujourd'hui.
+    """
+    from datetime import datetime as _dt
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    watchlist_path = trading_lab_root / "docs" / "scout" / "trader_watchlist.yaml"
+    if not watchlist_path.exists():
+        raise HTTPException(status_code=404, detail="Watchlist introuvable")
+    try:
+        import yaml
+    except ImportError:
+        raise HTTPException(status_code=500, detail="pyyaml requis")
+    data = yaml.safe_load(watchlist_path.read_text())
+    traders = data.get("traders", [])
+    found = None
+    for t in traders:
+        if t.get("id") == trader_id:
+            found = t
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Trader '{trader_id}' non trouvé")
+    found["status"] = "skip"
+    found["skip_reason"] = reason or "(pas de raison fournie)"
+    found["last_check"] = _dt.now().strftime("%Y-%m-%d")
+    # Update meta counts
+    meta = data.get("meta", {})
+    meta["skip"] = sum(1 for t in traders if t.get("status") == "skip")
+    meta["watching"] = sum(1 for t in traders if t.get("status") == "watching")
+    data["meta"] = meta
+    watchlist_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False))
+    return {"trader_id": trader_id, "status": "skip", "reason": reason, "success": True}
+
+
+# ── Scout Hypotheses (T-50 — Combinatorial Hypothesis Generator) ──────────
+
+
+@app.get("/scout/hypotheses")
+def scout_hypotheses(min_score: int = 0, type_filter: str | None = None, limit: int = 100):
+    """S62 — Liste les hypothèses combinatoires générées par hypothesis_generator.py.
+
+    Lit le JSON le plus récent dans `results/hypotheses_*.json`.
+    Si aucun fichier OU le plus récent date de > 24h → regénère via subprocess.
+    """
+    import subprocess
+    from datetime import datetime as _dt, timezone as _tz
+
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    results_dir = trading_lab_root / "results"
+
+    candidates = sorted(results_dir.glob("hypotheses_*.json"), reverse=True)
+    source_file = candidates[0] if candidates else None
+
+    needs_regen = False
+    if source_file is None:
+        needs_regen = True
+    else:
+        age_sec = _dt.now().timestamp() - source_file.stat().st_mtime
+        if age_sec > 86400:
+            needs_regen = True
+
+    if needs_regen:
+        tool_path = trading_lab_root / "tools" / "hypothesis_generator.py"
+        if tool_path.exists():
+            today_tag = _dt.now(_tz.utc).strftime("S_%Y%m%d")
+            out_json = results_dir / f"hypotheses_{today_tag}.json"
+            try:
+                subprocess.run(
+                    ["python3", str(tool_path), "--n", "20", "--json", str(out_json)],
+                    cwd=str(trading_lab_root),
+                    check=False,
+                    timeout=30,
+                    capture_output=True,
+                )
+                if out_json.exists():
+                    source_file = out_json
+            except subprocess.TimeoutExpired:
+                pass
+
+    if source_file is None or not source_file.exists():
+        return {
+            "meta": {"generated_at": None, "total": 0, "source_file": None, "error": "No hypothesis file found and generator unavailable"},
+            "hypotheses": [],
+        }
+
+    try:
+        hyps = json.loads(source_file.read_text())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Hypotheses JSON malformed")
+
+    if type_filter:
+        hyps = [h for h in hyps if h.get("type") == type_filter]
+    hyps = [h for h in hyps if h.get("score", 0) >= min_score]
+
+    hyps.sort(key=lambda h: h.get("score", 0), reverse=True)
+
+    return {
+        "meta": {
+            "generated_at": _dt.fromtimestamp(source_file.stat().st_mtime, _tz.utc).isoformat(),
+            "total": len(hyps),
+            "source_file": source_file.name,
+        },
+        "hypotheses": hyps[:limit],
     }
 
 
