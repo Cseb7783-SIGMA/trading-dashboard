@@ -10,6 +10,7 @@ import DrawdownChart from "@/components/strategy/DrawdownChart";
 import TradeScatter from "@/components/strategy/TradeScatter";
 import RollingMetrics from "@/components/strategy/RollingMetrics";
 import TradeTable from "@/components/strategy/TradeTable";
+import PaperTradeTable from "@/components/strategy/PaperTradeTable";
 import PriceChart from "@/components/strategy/PriceChart";
 import PineModal from "@/components/strategy/PineModal";
 import ActivateModal from "@/components/strategy/ActivateModal";
@@ -240,6 +241,7 @@ export default function StrategyPage() {
         {run.d033?.deployment_stage === "paper" && (
           <>
             <PaperLiveCard runId={decodeURIComponent(id)} instrument={run.universe?.instrument} />
+            <PaperTradeTable runId={decodeURIComponent(id)} />
             {run.universe?.instrument && run.universe?.timeframe && (
               <LiveChart symbol={run.universe.instrument} tf={run.universe.timeframe} runId={decodeURIComponent(id)} strategyName={run.strategy.name} />
             )}
@@ -314,7 +316,20 @@ export default function StrategyPage() {
 
         <PriceChart runId={decodeURIComponent(id)} defaultAsset={run.universe.instrument} defaultTf={run.universe.timeframe} />
 
-        <TradeTable trades={run.trades} />
+        <details className="bg-surface border border-border rounded-lg group">
+          <summary className="px-4 py-3 cursor-pointer select-none flex items-center justify-between hover:bg-surface-hover transition-colors text-xs text-muted uppercase tracking-wider">
+            <span className="flex items-center gap-2">
+              <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
+              Voir les {run.trades.length} trades historiques (Backtest)
+            </span>
+            <span className="text-[10px] normal-case text-muted/70">
+              Référence historique — déjà résumé dans les KPIs ci-dessus
+            </span>
+          </summary>
+          <div className="border-t border-border">
+            <TradeTable trades={run.trades} title="Trades Backtest" />
+          </div>
+        </details>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <EquityCurve trades={run.trades} />
