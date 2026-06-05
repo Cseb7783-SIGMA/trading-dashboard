@@ -3,6 +3,23 @@ import { useEffect, useState } from "react";
 import { Play, Square, Activity, Clock, TrendingUp, TrendingDown, AlertCircle, Loader2 } from "lucide-react";
 import { fetchPaperData, paperTraderStart, paperTraderStop, paperTraderStatus, fetchLivePrice, type PaperData, type PaperTrade } from "@/lib/api";
 
+
+// S65 — Calcule Max Consecutive Wins / Losses depuis liste trades paper
+function computeStreaks(trades: Array<{ pnl?: number | null }>) {
+  let mcw = 0, mcl = 0, curW = 0, curL = 0;
+  for (const t of trades) {
+    const pnl = t.pnl;
+    if (pnl !== null && pnl !== undefined && pnl > 0) {
+      curW++; curL = 0;
+      if (curW > mcw) mcw = curW;
+    } else if (pnl !== null && pnl !== undefined && pnl < 0) {
+      curL++; curW = 0;
+      if (curL > mcl) mcl = curL;
+    }
+  }
+  return { mcw, mcl };
+}
+
 type Props = { runId: string; instrument?: string };
 
 export default function PaperLiveCard({ runId, instrument }: Props) {
@@ -198,7 +215,7 @@ export default function PaperLiveCard({ runId, instrument }: Props) {
       {state ? (
         <>
           {/* KPIs Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
             <div className="bg-ink/30 rounded p-2 border border-border/60">
               <div className="text-[10px] text-muted uppercase tracking-wider">Capital fictif</div>
               <div className="text-sm font-semibold font-mono text-text">${state.capital.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
@@ -213,6 +230,14 @@ export default function PaperLiveCard({ runId, instrument }: Props) {
               <div className="text-[10px] text-muted uppercase tracking-wider">Trades Live</div>
               <div className="text-sm font-semibold font-mono text-text">{state.trade_count}</div>
               <div className="text-[9px] text-muted/70">{state.wins}W / {state.losses}L</div>
+            </div>
+            <div className="bg-ink/30 rounded p-2 border border-border/60">
+              <div className="text-[10px] text-muted uppercase tracking-wider">Max Consec W</div>
+              <div className="text-sm font-semibold font-mono text-text">{computeStreaks((data?.trades ?? []) as Array<{ pnl?: number | null }>).mcw}</div>
+            </div>
+            <div className="bg-ink/30 rounded p-2 border border-border/60">
+              <div className="text-[10px] text-muted uppercase tracking-wider">Max Consec L</div>
+              <div className="text-sm font-semibold font-mono text-text">{computeStreaks((data?.trades ?? []) as Array<{ pnl?: number | null }>).mcl}</div>
             </div>
             <div className="bg-ink/30 rounded p-2 border border-border/60">
               <div className="text-[10px] text-muted uppercase tracking-wider">WR Live</div>
@@ -255,29 +280,8 @@ export default function PaperLiveCard({ runId, instrument }: Props) {
             </div>
           )}
 
-          {/* Trades récents */}
-          {recent.length > 0 ? (
-            <div>
-              <div className="text-[10px] text-muted uppercase tracking-wider mb-1.5">
-                {recent.length} trade{recent.length > 1 ? "s" : ""} récent{recent.length > 1 ? "s" : ""}
-              </div>
-              <div className="space-y-1">
-                {recent.map((t: PaperTrade, i: number) => (
-                  <div key={i} className="flex items-center justify-between text-[11px] bg-ink/20 rounded px-2 py-1.5 border border-border/40">
-                    <div className="flex items-center gap-2">
-                      {t.pnl >= 0 ? <TrendingUp size={11} className="text-green-700" /> : <TrendingDown size={11} className="text-red-500" />}
-                      <span className="font-mono text-muted">{t.exit_ts?.slice(0, 16).replace("T", " ")}</span>
-                      <span className="text-text">{t.direction}</span>
-                      <span className="text-[9px] px-1 py-0.5 rounded bg-surface text-muted">{t.exit_reason}</span>
-                    </div>
-                    <span className={`font-mono font-semibold ${t.pnl >= 0 ? "text-green-700" : "text-red-500"}`}>
-                      {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
+          {/* S62 — Section "5 trades récents" supprimée (redondante avec PaperTradeTable en bas) */}
+          {recent.length > 0 ? null : (
             running ? (
               <div className="flex items-start gap-3 p-3 rounded bg-amber-50 border border-amber-200">
                 <Clock size={16} className="shrink-0 mt-0.5 text-amber-700" />
