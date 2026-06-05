@@ -13,6 +13,7 @@
  *   - Catégorie (ETF/Futures/CFD/Forex/Crypto...)
  */
 import { useState, useMemo } from "react";
+import { RefreshCw } from "lucide-react";
 import type { Run } from "@/lib/types";
 import {
   groupByLineage,
@@ -28,13 +29,16 @@ type TierFilter = "all" | "STATISTICALLY_ROBUST" | "HIGH" | "MEDIUM" | "LOW" | "
 type StyleFilter = "all" | "scalping" | "swing";
 type StageFilter = "all" | "paper" | "rd";
 type CategoryFilter = "all" | AssetCategory;
-type PeriodFilter = "all_time" | "12m" | "6m" | "3m" | "1m";
+type PeriodFilter = "all_time" | "12m" | "6m" | "3m" | "1m" | "7d" | "24h";
 
 interface Props {
   runs: Run[];
+  onRefresh?: () => void;          // S65 — callback pour re-fetch /runs (optionnel)
+  refreshing?: boolean;            // S65 — état pour spinner pendant le fetch
+  lastRefreshAt?: string | null;   // S65 — heure de la dernière actualisation (HH:MM:SS)
 }
 
-export default function StrategyLineageView({ runs }: Props) {
+export default function StrategyLineageView({ runs, onRefresh, refreshing, lastRefreshAt }: Props) {
   // Filters state
   const [styleFilter, setStyleFilter] = useState<StyleFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
@@ -45,9 +49,18 @@ export default function StrategyLineageView({ runs }: Props) {
   // Group runs by lineage (memoized)
   const tree: LineageTree = useMemo(() => groupByLineage(runs), [runs]);
 
+  // S62 — helper : un run tombe-t-il dans la fenêtre période sélectionnée (basé sur created_at) ?
+  const isWithinPeriod = (created_at: string | undefined, period: PeriodFilter): boolean => {
+    if (period === "all_time" || !created_at) return true;
+    const days = { "12m": 365, "6m": 180, "3m": 90, "1m": 30, "7d": 7, "24h": 1 }[period];
+    if (!days) return true;
+    const ageDays = (Date.now() - new Date(created_at).getTime()) / (1000 * 60 * 60 * 24);
+    return ageDays <= days;
+  };
+
   // Helper : filter runs based on selected filters, optionally excluding one section
   // Used to compute "dynamic" counts that reflect cross-filter intersection (S61)
-  const filterRunsExcept = (excludeSection: "style" | "tier" | "stage" | "category" | null) => {
+  const filterRunsExcept = (excludeSection: "style" | "tier" | "stage" | "period" | "category" | null) => {
     return tree.flatMap((fam) =>
       fam.versions.flatMap((v) => v.runs)
     ).filter((lr) => {
@@ -61,6 +74,7 @@ export default function StrategyLineageView({ runs }: Props) {
         if (stageFilter === "paper" && lr.run.d033?.deployment_stage !== "paper") return false;
         if (stageFilter === "rd" && lr.run.d033?.deployment_stage === "paper") return false;
       }
+      if (excludeSection !== "period" && !isWithinPeriod(lr.run.created_at, periodFilter)) return false;
       if (excludeSection !== "category" && categoryFilter !== "all" && lr.category !== categoryFilter) return false;
       return true;
     });
@@ -126,6 +140,7 @@ export default function StrategyLineageView({ runs }: Props) {
               }
               if (stageFilter === "paper" && lr.run.d033?.deployment_stage !== "paper") return false;
               if (stageFilter === "rd" && lr.run.d033?.deployment_stage === "paper") return false;
+              if (!isWithinPeriod(lr.run.created_at, periodFilter)) return false;
               if (categoryFilter !== "all" && lr.category !== categoryFilter) return false;
               return true;
             }),
@@ -133,12 +148,35 @@ export default function StrategyLineageView({ runs }: Props) {
           .filter((ver) => ver.runs.length > 0),
       }))
       .filter((fam) => fam.versions.length > 0);
+  }, [tree, styleFilter, tierFilter, stageFilter, periodFilter, categoryFilter]);
+
+  // S62 — Counts dynamiques par période (compteurs à droite des boutons)
+  const periodCounts = useMemo(() => {
+    const baseRuns = filterRunsExcept("period");
+    return {
+      all_time: baseRuns.length,
+      "12m": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "12m")).length,
+      "6m": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "6m")).length,
+      "3m": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "3m")).length,
+      "1m": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "1m")).length,
+      "7d": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "7d")).length,
+      "24h": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "24h")).length,
+    };
   }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter]);
 
   return (
     <div className="grid grid-cols-[140px_1fr] gap-4">
       {/* SIDEBAR */}
       <aside className="bg-surface-elevated rounded-lg p-2.5 h-fit sticky top-4">
+        {/* S65 — Refresh button : reload simple et fiable */}
+        <button
+          onClick={() => window.location.reload()}
+          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 mb-2.5 text-[11px] rounded border border-border bg-surface hover:bg-ink hover:border-blue/40 transition-colors"
+          aria-label="Actualiser la page"
+        >
+          <RefreshCw size={11} aria-hidden="true" />
+          <span>Actualiser</span>
+        </button>
         {/* Style */}
         <FilterSection
           label="Style"
@@ -149,6 +187,21 @@ export default function StrategyLineageView({ runs }: Props) {
           ]}
           selected={styleFilter}
           onSelect={(s) => setStyleFilter(s as StyleFilter)}
+        />
+
+        <FilterSection
+          label="Période"
+          options={[
+            { id: "24h", label: "24h", count: periodCounts["24h"], color: "info" },
+            { id: "all_time", label: "All-time", count: periodCounts.all_time, color: "info" },
+            { id: "12m", label: "12 mois", count: periodCounts["12m"] },
+            { id: "6m", label: "6 mois", count: periodCounts["6m"] },
+            { id: "3m", label: "3 mois", count: periodCounts["3m"] },
+            { id: "1m", label: "1 mois", count: periodCounts["1m"] },
+            { id: "7d", label: "7 jours", count: periodCounts["7d"] },
+          ]}
+          selected={periodFilter}
+          onSelect={(s) => setPeriodFilter(s as PeriodFilter)}
         />
 
         <FilterSection
@@ -174,19 +227,6 @@ export default function StrategyLineageView({ runs }: Props) {
           ]}
           selected={stageFilter}
           onSelect={(s) => setStageFilter(s as StageFilter)}
-        />
-
-        <FilterSection
-          label="Période"
-          options={[
-            { id: "all_time", label: "All-time", count: null, color: "info" },
-            { id: "12m", label: "12 mois", count: null },
-            { id: "6m", label: "6 mois", count: null },
-            { id: "3m", label: "3 mois", count: null },
-            { id: "1m", label: "1 mois", count: null },
-          ]}
-          selected={periodFilter}
-          onSelect={(s) => setPeriodFilter(s as PeriodFilter)}
         />
 
         <FilterSection
@@ -364,7 +404,7 @@ function FamilyCard({ family }: FamilyCardProps) {
             <div className="flex items-baseline gap-2 mb-1">
               <span className={`text-xs font-medium ${hasBest ? "text-green-900" : "text-text"}`}>
                 <b>{ver.version.version_label.split(" ")[0]}</b> {ver.version.version_label.split(" ").slice(1).join(" ")}
-                {hasBest && " ⭐"}
+                {hasBest && <span title="Meilleur PF Backtest dans cette famille (≠ Tier ROBUST)" className="cursor-help">{" ⭐"}</span>}
               </span>
               {ver.version.version_description && (
                 <span className="text-[10px] text-muted truncate flex-1">
@@ -417,7 +457,6 @@ function AssetRow({ lr, isBest }: AssetRowProps) {
     >
       <span className={`font-mono text-[10px] ${isBest ? "text-green-900 font-medium" : ""}`}>
         {lr.asset} · {lr.tf}
-        {isBest && " ⭐"}
       </span>
       <span className={`text-[10px] ${isBest ? "text-green-700" : ""}`}>{lr.asset_label}</span>
       <span className={`text-right ${isBest ? "text-green-900 font-medium" : ""}`}>PF {pf.toFixed(2)}</span>
@@ -425,8 +464,11 @@ function AssetRow({ lr, isBest }: AssetRowProps) {
       <span className="text-right text-[9px]">1:{rr.toFixed(2)}</span>
       <span className="text-right">{dd.toFixed(1)}%</span>
       <span className="flex items-center justify-center gap-1">
+        {isBest && (
+          <span title="Meilleur PF Backtest de la famille (≠ Tier ROBUST)" className="cursor-help text-[10px] leading-none">⭐</span>
+        )}
         <span className={`text-[9px] px-1 py-0.5 rounded ${tierStyles[tier] || tierStyles.Archive}`}>
-          {isBest ? "⭐" : tier === "STATISTICALLY_ROBUST" ? "ROBUST" : tier}
+          {tier === "STATISTICALLY_ROBUST" ? "ROBUST" : tier}
         </span>
         {run.d033?.deployment_stage === "paper" && (
           <span title="Paper actif" className="text-[10px] leading-none" aria-label="paper actif">🚀</span>
