@@ -192,13 +192,13 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
         <FilterSection
           label="Période"
           options={[
-            { id: "24h", label: "24h", count: periodCounts["24h"], color: "info" },
             { id: "all_time", label: "All-time", count: periodCounts.all_time, color: "info" },
             { id: "12m", label: "12 mois", count: periodCounts["12m"] },
             { id: "6m", label: "6 mois", count: periodCounts["6m"] },
             { id: "3m", label: "3 mois", count: periodCounts["3m"] },
             { id: "1m", label: "1 mois", count: periodCounts["1m"] },
             { id: "7d", label: "7 jours", count: periodCounts["7d"] },
+            { id: "24h", label: "24h", count: periodCounts["24h"] },
           ]}
           selected={periodFilter}
           onSelect={(s) => setPeriodFilter(s as PeriodFilter)}
