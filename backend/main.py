@@ -632,6 +632,48 @@ def paper_trader_list_running():
         raise HTTPException(status_code=500, detail=f"Erreur list : {e}")
 
 
+@app.get("/paper-trader/averages")
+def paper_trader_averages():
+    """Moyennes KPIs backtest des strategies en paper (deployment_stage=paper).
+    Benchmark : comparer une nouvelle strat avant de la pousser en paper (S69)."""
+    import json as _json
+    runs_dir = get_runs_dir()
+    pnl=[]; pnlpct=[]; dd=[]; wr=[]; pf=[]
+    n_paper=0; n_skipped=0
+    if runs_dir.exists():
+        for d in runs_dir.iterdir():
+            if not d.is_dir():
+                continue
+            mp = d / "meta.json"; kp = d / "kpis.json"
+            if not mp.exists():
+                continue
+            try:
+                meta = _json.loads(mp.read_text())
+            except Exception:
+                continue
+            if meta.get("d033", {}).get("deployment_stage") != "paper":
+                continue
+            n_paper += 1
+            if not kp.exists():
+                n_skipped += 1; continue
+            try:
+                k = _json.loads(kp.read_text())
+                pnl.append(k["pnl"]["total_pnl"])
+                pnlpct.append(k["pnl"].get("total_pnl_pct", 0) * 100)
+                dd.append(k["drawdown"]["max_drawdown_pct"])
+                wr.append(k["ratios"]["win_rate"])
+                pf.append(k["ratios"]["profit_factor"])
+            except Exception:
+                n_skipped += 1
+    def avg(x): return round(sum(x)/len(x), 2) if x else None
+    return {
+        "n_paper": n_paper, "n_valid": len(pnl), "n_skipped": n_skipped,
+        "avg_pnl": avg(pnl), "avg_pnl_pct": avg(pnlpct),
+        "avg_max_drawdown_pct": avg(dd), "avg_win_rate": avg(wr),
+        "avg_profit_factor": avg(pf),
+    }
+
+
 # ─── Pause / Resume global (S60) ────────────────────────────────────────────
 @app.post("/paper-trader/pause-all")
 def paper_trader_pause_all():
@@ -974,6 +1016,7 @@ def get_live_price(symbol: str):
 @app.get("/runs/{run_id}/paper-data")
 def get_paper_data(run_id: str):
     """Retourne paper_trades.csv (liste) + paper_state.json (KPIs live) d'un run."""
+    import math as _math
     runs_dir = get_runs_dir()
     run_dir = runs_dir / run_id
     if not run_dir.exists():
@@ -993,11 +1036,32 @@ def get_paper_data(run_id: str):
         try:
             import pandas as _pd
             df = _pd.read_csv(trades_csv)
+            df = df.where(_pd.notnull(df), None)
             out["trades"] = df.to_dict(orient="records")
             out["has_data"] = True
         except Exception:
             pass
-    return out
+
+    # S63 fix v2 : cleanup récursif global — NaN/inf/numpy types → None ou Python natif
+    def _clean(obj):
+        if obj is None:
+            return None
+        if isinstance(obj, float):
+            if _math.isnan(obj) or _math.isinf(obj):
+                return None
+            return obj
+        if isinstance(obj, dict):
+            return {k: _clean(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_clean(v) for v in obj]
+        if hasattr(obj, "item"):  # numpy scalar
+            try:
+                v = obj.item()
+                return _clean(v)
+            except Exception:
+                return str(obj)
+        return obj
+    return _clean(out)
 
 
 @app.get("/scout/sources")

@@ -16,6 +16,7 @@ import PineModal from "@/components/strategy/PineModal";
 import ActivateModal from "@/components/strategy/ActivateModal";
 import PaperLiveCard from "@/components/strategy/PaperLiveCard";
 import LiveChart from "@/components/strategy/LiveChart";
+import PaperAverages from "@/components/strategy/PaperAverages";
 import type { Destination } from "@/lib/api";
 
 export default function StrategyPage() {
@@ -236,6 +237,8 @@ export default function StrategyPage() {
           </div>
           <KPICards kpis={run.kpis} />
         </div>
+
+        <PaperAverages />
 
         {/* Paper Trader Live (S59 Phase B) — visible uniquement si deployment_stage = paper */}
         {run.d033?.deployment_stage === "paper" && (

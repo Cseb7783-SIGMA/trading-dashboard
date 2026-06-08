@@ -22,6 +22,18 @@ export function getAiStreamUrl(): string {
   return `${BASE}/ai`;
 }
 
+export type PaperAveragesData = {
+  n_paper: number; n_valid: number; n_skipped: number;
+  avg_pnl: number | null; avg_pnl_pct: number | null;
+  avg_max_drawdown_pct: number | null; avg_win_rate: number | null; avg_profit_factor: number | null;
+};
+
+export async function fetchPaperAverages(): Promise<PaperAveragesData> {
+  const res = await fetch(`${BASE}/paper-trader/averages`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchPaperAverages: ${res.status}`);
+  return res.json();
+}
+
 export async function postAiPrompt(runId: string, prompt: string): Promise<Response> {
   return fetch(`${BASE}/ai`, {
     method: "POST",
