@@ -1730,3 +1730,49 @@ def desk_agent_set_comment(call_id: str, body: _DeskComment):
     call.setdefault("review", {})["sebast_comment"] = body.comment
     journal.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     return {"ok": True, "comment": body.comment}
+
+
+# ─── Récupéré S71 (perdu lors de la restauration s68backup) ───
+@app.get("/paper-trader/averages")
+def paper_trader_averages():
+    """Moyennes KPIs backtest des strategies en paper (deployment_stage=paper).
+    Benchmark : comparer une nouvelle strat avant de la pousser en paper (S69)."""
+    import json as _json
+    runs_dir = get_runs_dir()
+    pnl=[]; pnlpct=[]; dd=[]; wr=[]; pf=[]
+    n_paper=0; n_skipped=0
+    if runs_dir.exists():
+        for d in runs_dir.iterdir():
+            if not d.is_dir():
+                continue
+            mp = d / "meta.json"; kp = d / "kpis.json"
+            if not mp.exists():
+                continue
+            try:
+                meta = _json.loads(mp.read_text())
+            except Exception:
+                continue
+            if meta.get("d033", {}).get("deployment_stage") != "paper":
+                continue
+            n_paper += 1
+            if not kp.exists():
+                n_skipped += 1; continue
+            try:
+                k = _json.loads(kp.read_text())
+                pnl.append(k["pnl"]["total_pnl"])
+                pnlpct.append(k["pnl"].get("total_pnl_pct", 0) * 100)
+                dd.append(k["drawdown"]["max_drawdown_pct"])
+                wr.append(k["ratios"]["win_rate"])
+                pf.append(k["ratios"]["profit_factor"])
+            except Exception:
+                n_skipped += 1
+    def avg(x): return round(sum(x)/len(x), 2) if x else None
+    return {
+        "n_paper": n_paper, "n_valid": len(pnl), "n_skipped": n_skipped,
+        "avg_pnl": avg(pnl), "avg_pnl_pct": avg(pnlpct),
+        "avg_max_drawdown_pct": avg(dd), "avg_win_rate": avg(wr),
+        "avg_profit_factor": avg(pf),
+    }
+
+
+# ─── Pause / Resume global (S60) ────────────────────────────────────────────
