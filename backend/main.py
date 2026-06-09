@@ -1610,3 +1610,123 @@ def desk_agent_calls():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Journal Desk Agent illisible : {e}")
     return {"calls": data.get("calls", [])}
+
+
+# ─── Desk Agent (D-037) v2 — chart-data fenêtré + indicateurs ─────────────────
+from pydantic import BaseModel as _BaseModel
+
+
+class _DeskComment(_BaseModel):
+    comment: str
+
+
+@app.get("/desk-agent/calls/{call_id}/chart-data")
+def desk_agent_chart_data(call_id: str):
+    """OHLC fenêtré autour du call + EMA(5/20/50) + AVWAP + volume + niveaux du trade."""
+    import pandas as pd
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    journal = trading_lab_root / "results" / "desk_agent" / "calls.json"
+    if not journal.exists():
+        raise HTTPException(status_code=404, detail="Journal Desk Agent introuvable")
+    calls = json.loads(journal.read_text()).get("calls", [])
+    call = next((c for c in calls if c.get("id") == call_id), None)
+    if not call:
+        raise HTTPException(status_code=404, detail=f"Call introuvable: {call_id}")
+
+    instrument = (call.get("asset") or "").upper()
+    timeframe = call.get("entry_tf", "15m")
+    data_dir = trading_lab_root / "data"
+    tf_norm = timeframe.replace("m", "min") if timeframe.endswith("m") else timeframe
+
+    df = None
+    used_tf = None
+    for tfc in [tf_norm, "15min", "5min"]:
+        p = data_dir / "long_data" / f"twelvedata_{tfc}" / f"{instrument}_{tfc}.csv"
+        if p.exists():
+            df = pd.read_csv(p, parse_dates=["datetime"], index_col="datetime")
+            used_tf = tfc
+            break
+    if df is None or not len(df):
+        raise HTTPException(status_code=404, detail=f"Pas de données pour {instrument}")
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+
+    cols = {c.lower(): c for c in df.columns}
+    O, H, L, C, V = cols.get("open"), cols.get("high"), cols.get("low"), cols.get("close"), cols.get("volume")
+
+    def _p(ts):
+        try:
+            return pd.to_datetime(ts).tz_localize(None)
+        except Exception:
+            return None
+
+    entry_dt = _p(call.get("entry_ts")) or _p(call.get("datetime"))
+    if entry_dt is not None:
+        pos = int(df.index.searchsorted(entry_dt))
+        if pos >= len(df):
+            pos = len(df) - 1
+        lo = max(0, pos - 70)
+        hi = min(len(df), pos + 30)
+        win = df.iloc[lo:hi]
+        if len(win) < 10:
+            win = df.iloc[-120:]
+    else:
+        win = df.iloc[-120:]
+
+    close = win[C].astype(float)
+    ema5 = close.ewm(span=5, adjust=False).mean()
+    ema20 = close.ewm(span=20, adjust=False).mean()
+    ema50 = close.ewm(span=50, adjust=False).mean()
+    aw = None
+    if V is not None:
+        tp = (win[H].astype(float) + win[L].astype(float) + close) / 3.0
+        vv = win[V].astype(float)
+        aw = (tp * vv).cumsum() / vv.cumsum().replace(0, pd.NA)
+
+    def _ts(idx):
+        return int(pd.Timestamp(idx).timestamp())
+
+    bars, vol, e5, e20, e50, avwap = [], [], [], [], [], []
+    for i, (idx, row) in enumerate(win.iterrows()):
+        t = _ts(idx)
+        o, h, l, c = float(row[O]), float(row[H]), float(row[L]), float(row[C])
+        bars.append({"time": t, "open": o, "high": h, "low": l, "close": c})
+        e5.append({"time": t, "value": round(float(ema5.iloc[i]), 4)})
+        e20.append({"time": t, "value": round(float(ema20.iloc[i]), 4)})
+        e50.append({"time": t, "value": round(float(ema50.iloc[i]), 4)})
+        if V is not None:
+            vol.append({"time": t, "value": float(row[V]), "color": "#15803D55" if c >= o else "#DC262655"})
+            if aw is not None and pd.notna(aw.iloc[i]):
+                avwap.append({"time": t, "value": round(float(aw.iloc[i]), 4)})
+
+    levels = {
+        "direction": call.get("direction"),
+        "entry": call.get("entry"),
+        "sl": call.get("sl"),
+        "tp": call.get("tp"),
+        "entry_time": _ts(entry_dt) if entry_dt is not None else None,
+        "exit_time": _ts(_p(call.get("exit_ts"))) if _p(call.get("exit_ts")) is not None else None,
+    }
+    return {
+        "instrument": instrument, "timeframe": timeframe, "used_tf": used_tf,
+        "bars": bars, "volume": vol, "ema5": e5, "ema20": e20, "ema50": e50,
+        "avwap": avwap, "levels": levels,
+    }
+
+
+@app.post("/desk-agent/calls/{call_id}/comment")
+def desk_agent_set_comment(call_id: str, body: _DeskComment):
+    """Écrit le commentaire de Sebast (revue) dans calls.json."""
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    journal = trading_lab_root / "results" / "desk_agent" / "calls.json"
+    if not journal.exists():
+        raise HTTPException(status_code=404, detail="Journal introuvable")
+    data = json.loads(journal.read_text())
+    call = next((c for c in data.get("calls", []) if c.get("id") == call_id), None)
+    if not call:
+        raise HTTPException(status_code=404, detail="Call introuvable")
+    call.setdefault("review", {})["sebast_comment"] = body.comment
+    journal.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return {"ok": True, "comment": body.comment}
