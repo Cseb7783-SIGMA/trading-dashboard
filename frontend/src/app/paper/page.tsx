@@ -7,6 +7,7 @@ import { paperTraderList, fetchPaperData } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import PaperPauseControl from "@/components/layout/PaperPauseControl";
 import DeskAgentTab from "@/components/desk/DeskAgentTab";
+import PaperAverages from "@/components/strategy/PaperAverages";
 
 type PaperStrategy = {
   id: string;
@@ -614,6 +615,8 @@ export default function PaperTradePage() {
           </button>
         )}
       </div>
+
+      <PaperAverages />
 
       {/* Tabs Scalping / Swing */}
       <div className="flex items-center gap-0 border-b border-border">
