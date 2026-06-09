@@ -6,6 +6,7 @@ import { useRuns } from "@/hooks/useRuns";
 import { paperTraderList, fetchPaperData } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import PaperPauseControl from "@/components/layout/PaperPauseControl";
+import DeskAgentTab from "@/components/desk/DeskAgentTab";
 
 type PaperStrategy = {
   id: string;
@@ -77,30 +78,21 @@ const MEDAL: Record<number, { label: string; color: string }> = {
 };
 
 function StatusBadge({ status }: { status: PaperStrategy["status"] }) {
-  if (status === "stopped") {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-red-500/15 text-red-400 whitespace-nowrap">
-        <Square size={10} /> Arrêté
-      </span>
-    );
-  }
-  if (status === "confirmed") {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-green-500/15 text-green-300 whitespace-nowrap">
-        <Check size={10} /> Confirmée
-      </span>
-    );
-  }
-  if (status === "in_progress") {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-amber-500/15 text-amber-300 whitespace-nowrap">
-        <Clock size={10} /> En cours
-      </span>
-    );
-  }
+  // S62 Option D — Texte sec coloré (point + label, sans bordure ni padding)
+  const config = {
+    stopped:     { color: "#dc2626", label: "Arrêtée", icon: "●", tooltip: "Paper trader arrêté — aucun signal n'est évalué" },
+    confirmed:   { color: "#16a34a", label: "Confirmée", icon: "●", tooltip: "Stratégie confirmée — KPIs Paper alignés avec Backtest" },
+    in_progress: { color: "#16a34a", label: "Active", icon: "●", tooltip: "Paper trader actif — signaux évalués en continu" },
+    drift:       { color: "#f59e0b", label: "Drift", icon: "●", tooltip: "Drift détecté — KPIs Paper divergent du Backtest" },
+  }[status] || { color: "#6b7280", label: "Inconnu", icon: "●", tooltip: "Statut inconnu" };
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-full bg-red-500/15 text-red-300 whitespace-nowrap">
-      <AlertTriangle size={10} /> Drift
+    <span
+      className="inline-flex items-center gap-1 text-[11px] font-medium whitespace-nowrap cursor-help"
+      style={{ color: config.color }}
+      title={config.tooltip}
+    >
+      <span className="text-[9px] leading-none">{config.icon}</span>
+      {config.label}
     </span>
   );
 }
@@ -206,7 +198,7 @@ function runToPaperStrategy(run: Run): PaperStrategy {
 }
 
 export default function PaperTradePage() {
-  const [tab, setTab] = useState<"scalping" | "swing">("scalping");
+  const [tab, setTab] = useState<"scalping" | "swing" | "desk_agent">("scalping");
   const [query, setQuery] = useState("");
   // S61 — Tri par colonne (null = tri par défaut Option C)
   type SortColumn = "pf" | "wr" | "rr" | "dd" | "sample" | null;
@@ -336,12 +328,23 @@ export default function PaperTradePage() {
       const pf_delta_pct = (pf_paper !== null && s.pf_backtest > 0)
         ? ((pf_paper - s.pf_backtest) / s.pf_backtest) * 100
         : null;
+      // S62 — paperDays = jours calendaires depuis dernier trade (1j = hier)
+      const referenceTs = act?.last_trade_ts || s.created_at;
+      let paperDays = 0;
+      if (referenceTs) {
+        const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(referenceTs);
+        const lastDate = new Date(hasTz ? referenceTs : referenceTs + "Z");
+        const lastMidnight = new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()).getTime();
+        const todayMidnight = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+        paperDays = Math.max(0, Math.round((todayMidnight - lastMidnight) / (1000 * 60 * 60 * 24)));
+      }
       return {
         ...s,
         status: runningIds.has(s.id) ? s.status : "stopped",
         tradesPaper: trades_total,
         tradesToday: trades_today,
         lastTradeTs: act?.last_trade_ts || null,
+        paperDays,
         pf_paper,
         wr_paper,
         rr_paper,
@@ -630,6 +633,14 @@ export default function PaperTradePage() {
         >
           Swing <span className="text-muted font-normal">({counts.swing})</span>
         </button>
+        <button
+          onClick={() => setTab("desk_agent")}
+          className={`text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${
+            tab === "desk_agent" ? "border-blue text-blue font-medium" : "border-transparent text-muted hover:text-text"
+          }`}
+        >
+          Desk Agent
+        </button>
         {/* S61 — Bouton reset tri (visible seulement si tri custom actif) */}
         {sortColumn !== null && (
           <button
@@ -644,9 +655,13 @@ export default function PaperTradePage() {
 
       {/* Table */}
       {filtered.length === 0 ? (
+        tab === "desk_agent" ? (
+          <DeskAgentTab />
+        ) : (
         <div className="bg-surface border border-border border-dashed rounded-lg p-8 text-center text-xs text-muted">
           Aucune stratégie {tab === "scalping" ? "scalping" : "swing"} en paper actuellement.
         </div>
+        )
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">

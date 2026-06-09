@@ -1555,3 +1555,23 @@ Classification :
         "cost_estimate_usd": (msg.usage.input_tokens * 1e-6 + msg.usage.output_tokens * 5e-6),
         "tokens": {"input": msg.usage.input_tokens, "output": msg.usage.output_tokens},
     }
+
+
+# ─── Desk Agent (D-037) — journal des calls discrétionnaires ──────────────────
+@app.get("/desk-agent/calls")
+def desk_agent_calls():
+    """Retourne les calls discrétionnaires du Desk Agent (D-037).
+
+    Lit trading-lab/results/desk_agent/calls.json (rempli par tools/desk_agent_log.py).
+    L'agent décide seul → logue le call → revue conjointe a posteriori (mode Option B).
+    """
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    journal = trading_lab_root / "results" / "desk_agent" / "calls.json"
+    if not journal.exists():
+        return {"calls": []}
+    try:
+        data = json.loads(journal.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Journal Desk Agent illisible : {e}")
+    return {"calls": data.get("calls", [])}
