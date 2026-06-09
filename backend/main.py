@@ -124,6 +124,85 @@ def health():
     }
 
 
+@app.get("/assets-coverage")
+async def get_assets_coverage():
+    """S66 — Agrégation par instrument : count strats, best PF, TFs, familles.
+    Affiché dans widget compact haut Laboratoire."""
+    import re
+    runs = read_all_runs()
+    coverage: dict = {}
+    for r in runs:
+        inst = (r.universe.instrument or "").upper()
+        if not inst or inst == "?":
+            continue
+        if inst not in coverage:
+            coverage[inst] = {
+                "instrument": inst,
+                "type": r.universe.type or "",
+                "count": 0,
+                "best_pf": 0.0,
+                "timeframes": set(),
+                "families": set(),
+            }
+        c = coverage[inst]
+        c["count"] += 1
+        pf = r.kpis.profit_factor if r.kpis and r.kpis.profit_factor else 0.0
+        if pf > c["best_pf"]:
+            c["best_pf"] = pf
+        if r.universe.timeframe:
+            c["timeframes"].add(r.universe.timeframe)
+        # extraire famille du nom (f1, f2, fabio, etc.)
+        m = re.match(r"^(f\d+|fabio)", (r.strategy.name or "").lower())
+        if m:
+            c["families"].add(m.group(1).upper())
+    # Catégoriser
+    out = []
+    for inst, c in coverage.items():
+        c["timeframes"] = sorted(c["timeframes"])
+        c["families"] = sorted(c["families"])
+        c["best_pf"] = round(c["best_pf"], 2)
+        # Classify
+        if inst in ("QQQ", "SPY", "IWM", "DIA"): c["category"] = "ETF"
+        elif inst in ("NQ", "ES", "YM", "RTY", "CL", "GC", "NG"): c["category"] = "Futures"
+        elif "/" in inst or inst in ("EURUSD", "GBPUSD", "USDJPY"): c["category"] = "Forex"
+        elif inst.endswith("USD") or inst.endswith("USDT"): c["category"] = "Crypto"
+        else: c["category"] = "Autres"
+        out.append(c)
+    out.sort(key=lambda x: (-x["count"], -x["best_pf"]))
+    return {"coverage": out, "total_instruments": len(out), "total_runs": len(runs)}
+
+
+@app.get("/strategic-reflection")
+async def get_strategic_reflection():
+    """S66 — Strategic Reflection Agent (hebdo lundi 7h).
+    Diagnostic Lab + nouvelles directions + question critique."""
+    import json
+    from pathlib import Path
+    p = Path("/tmp/strategic_reflection.json")
+    if not p.exists():
+        return {"available": False, "reason": "Brief hebdo pas encore généré"}
+    try:
+        return {"available": True, **json.loads(p.read_text())}
+    except Exception as e:
+        return {"available": False, "reason": f"Parse error: {e}"}
+
+
+@app.get("/daily-brief")
+async def get_daily_brief():
+    """S66 — Daily Brief généré chaque matin 7h UTC par systemd timer
+    sebastien-daily-brief.timer. Agrège T-42 (Scout) + T-44 (Library Gap)
+    + T-50 (Hypothesis) + Auto-Evolver marginaux."""
+    import json
+    from pathlib import Path
+    brief_path = Path("/tmp/daily_brief.json")
+    if not brief_path.exists():
+        return {"available": False, "reason": "Brief pas encore généré — timer démarre demain 7h UTC ou trigger manuel via systemctl --user start sebastien-daily-brief.service"}
+    try:
+        return {"available": True, **json.loads(brief_path.read_text())}
+    except Exception as e:
+        return {"available": False, "reason": f"Parse error: {e}"}
+
+
 @app.get("/runs")
 def list_runs():
     return read_all_runs()
@@ -630,48 +709,6 @@ def paper_trader_list_running():
         return paper_orchestrator.list_running()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur list : {e}")
-
-
-@app.get("/paper-trader/averages")
-def paper_trader_averages():
-    """Moyennes KPIs backtest des strategies en paper (deployment_stage=paper).
-    Benchmark : comparer une nouvelle strat avant de la pousser en paper (S69)."""
-    import json as _json
-    runs_dir = get_runs_dir()
-    pnl=[]; pnlpct=[]; dd=[]; wr=[]; pf=[]
-    n_paper=0; n_skipped=0
-    if runs_dir.exists():
-        for d in runs_dir.iterdir():
-            if not d.is_dir():
-                continue
-            mp = d / "meta.json"; kp = d / "kpis.json"
-            if not mp.exists():
-                continue
-            try:
-                meta = _json.loads(mp.read_text())
-            except Exception:
-                continue
-            if meta.get("d033", {}).get("deployment_stage") != "paper":
-                continue
-            n_paper += 1
-            if not kp.exists():
-                n_skipped += 1; continue
-            try:
-                k = _json.loads(kp.read_text())
-                pnl.append(k["pnl"]["total_pnl"])
-                pnlpct.append(k["pnl"].get("total_pnl_pct", 0) * 100)
-                dd.append(k["drawdown"]["max_drawdown_pct"])
-                wr.append(k["ratios"]["win_rate"])
-                pf.append(k["ratios"]["profit_factor"])
-            except Exception:
-                n_skipped += 1
-    def avg(x): return round(sum(x)/len(x), 2) if x else None
-    return {
-        "n_paper": n_paper, "n_valid": len(pnl), "n_skipped": n_skipped,
-        "avg_pnl": avg(pnl), "avg_pnl_pct": avg(pnlpct),
-        "avg_max_drawdown_pct": avg(dd), "avg_win_rate": avg(wr),
-        "avg_profit_factor": avg(pf),
-    }
 
 
 # ─── Pause / Resume global (S60) ────────────────────────────────────────────
@@ -1555,8 +1592,6 @@ Classification :
         "cost_estimate_usd": (msg.usage.input_tokens * 1e-6 + msg.usage.output_tokens * 5e-6),
         "tokens": {"input": msg.usage.input_tokens, "output": msg.usage.output_tokens},
     }
-
-
 # ─── Desk Agent (D-037) — journal des calls discrétionnaires ──────────────────
 @app.get("/desk-agent/calls")
 def desk_agent_calls():
