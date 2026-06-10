@@ -1657,7 +1657,8 @@ def desk_agent_chart_data(call_id: str):
 
     def _p(ts):
         try:
-            return pd.to_datetime(ts).tz_localize(None)
+            d = pd.to_datetime(ts).tz_localize(None)
+            return None if pd.isna(d) else d
         except Exception:
             return None
 
