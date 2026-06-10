@@ -1641,12 +1641,30 @@ def desk_agent_chart_data(call_id: str):
 
     df = None
     used_tf = None
-    for tfc in [tf_norm, "15min", "5min"]:
-        p = data_dir / "long_data" / f"twelvedata_{tfc}" / f"{instrument}_{tfc}.csv"
-        if p.exists():
-            df = pd.read_csv(p, parse_dates=["datetime"], index_col="datetime")
-            used_tf = tfc
-            break
+    # 1) Données FRAÎCHES via yfinance : les paper trades sont live (juin),
+    #    le CSV local s'arrête ~mai → sans ça le chart affiche des bougies périmées.
+    try:
+        import yfinance as yf
+        _yf_sym = {"SPY": "SPY", "QQQ": "QQQ", "IWM": "IWM", "DIA": "DIA",
+                   "NQ": "NQ=F", "ES": "ES=F", "RTY": "RTY=F", "YM": "YM=F"}.get(instrument, instrument)
+        _yf_int = {"2m": "2m", "5m": "5m", "15m": "15m",
+                   "2min": "2m", "5min": "5m", "15min": "15m"}.get(timeframe, "5m")
+        _raw = yf.download(_yf_sym, period="60d", interval=_yf_int, progress=False, auto_adjust=False)
+        if _raw is not None and len(_raw):
+            if isinstance(_raw.columns, pd.MultiIndex):
+                _raw.columns = _raw.columns.get_level_values(0)
+            df = _raw
+            used_tf = _yf_int + "_live"
+    except Exception:
+        df = None
+    # 2) Fallback : CSV local historique (peut être périmé pour les trades récents).
+    if df is None or not len(df):
+        for tfc in [tf_norm, "15min", "5min"]:
+            p = data_dir / "long_data" / f"twelvedata_{tfc}" / f"{instrument}_{tfc}.csv"
+            if p.exists():
+                df = pd.read_csv(p, parse_dates=["datetime"], index_col="datetime")
+                used_tf = tfc
+                break
     if df is None or not len(df):
         raise HTTPException(status_code=404, detail=f"Pas de données pour {instrument}")
     if df.index.tz is not None:
