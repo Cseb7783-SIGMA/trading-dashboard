@@ -56,12 +56,12 @@ export default function DeskAgentTab() {
   useEffect(() => {
     fetch(`${BASE}/desk-agent/calls`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((d) => { const cs: Call[] = d.calls || []; setCalls(cs); if (cs.length) setSelId(cs[cs.length - 1].id); })
+      .then((d) => setCalls(d.calls || []))
       .catch(() => setCalls([]))
       .finally(() => setLoading(false));
   }, []);
 
-  const sel = calls.find((c) => c.id === selId) || calls[calls.length - 1];
+  const sel = calls.find((c) => c.id === selId) || null;
 
   useEffect(() => { setCommentDraft(sel?.review?.sebast_comment || ""); setSavedMsg(null); }, [sel?.id]);
 
@@ -101,6 +101,57 @@ export default function DeskAgentTab() {
     return <span className="text-[11px] px-2 py-0.5 rounded" style={{ background: short ? "#FCEBEB" : "#EAF3DE", color: short ? "#791F1F" : "#27500A" }}>{short ? "Short" : "Long"}</span>;
   };
 
+  const detailBlock = (c: Call) => (
+    <div className="bg-surface border border-blue/40 rounded-lg p-4 mt-1.5 mb-1">
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <span className="text-sm font-medium text-text">{c.asset}</span>
+        {dirBadge(c.direction)}
+        <span className="text-[13px] text-muted">{c.strategy} · {c.entry_tf}</span>
+        <a href={tvUrl(c.asset, c.entry_tf)} target="_blank" rel="noopener noreferrer"
+          className="text-[11px] px-2 py-0.5 rounded border border-border hover:bg-blue/10 text-blue">Ouvrir dans TradingView ↗</a>
+        <span className="ml-auto text-[11px] px-2 py-0.5 rounded" style={{ background: "#E1F5EE", color: "#085041" }}>
+          {c.status === "closed" ? "Clos" : "En cours"}
+          {c.status === "closed" && c.review?.pnl_usd != null ? ` · ${c.review.pnl_usd >= 0 ? "+" : ""}$${Math.round(c.review.pnl_usd)}` : ""}
+        </span>
+      </div>
+
+      <DeskAgentChart callId={c.id} />
+
+      <div className="grid md:grid-cols-2 gap-5 border-t border-border pt-4 mt-3">
+        <div>
+          <div className="text-[13px] font-medium text-muted mb-2">Plan — avant le trade</div>
+          <Field label="Top-down" value={`${c.topdown?.bias ?? "—"} — 4h ${c.topdown?.h4 ?? "—"} · 1h ${c.topdown?.h1 ?? "—"} · 15m ${c.topdown?.m15 ?? "—"}`} />
+          <Field label="TF d'entrée · raison" value={`${c.entry_tf} — ${c.reason}`} />
+          <Field label="Entrée · SL" value={`${c.entry} · SL ${c.sl} (${c.sl_rule})`} />
+          <Field label="TP · risque" value={`${c.tp} — ${c.tp_rule} · risque ${c.risk_pct}% · RR visé ${c.rr_target}:1`} />
+        </div>
+        <div>
+          <div className="text-[13px] font-medium text-muted mb-2">Revue — après le trade</div>
+          {c.status === "closed" ? (
+            <>
+              <Field label="Résultat" value={<span style={{ color: c.review.result === "win" ? "#15803D" : "#DC2626", fontWeight: 500 }}>{c.review.result === "win" ? "Gain" : "Perte"}{c.review.pnl_usd != null ? ` · ${c.review.pnl_usd >= 0 ? "+" : ""}$${Math.round(c.review.pnl_usd)}` : ""}{c.review.r_realized != null ? ` (${c.review.r_realized >= 0 ? "+" : ""}${c.review.r_realized}R)` : ""}</span>} />
+              <Field label="Plan respecté ?" value={c.review.plan_respected == null ? "—" : c.review.plan_respected ? "Oui" : "Non"} />
+              <Field label="Leçon (agent)" value={c.review.lesson || "—"} />
+            </>
+          ) : (
+            <div className="text-sm text-muted mb-3">Position ouverte — revue à remplir une fois clôturée.</div>
+          )}
+          <div className="rounded-md p-2.5 mt-1" style={{ background: "#E6F1FB", border: "1px solid #85B7EB" }}>
+            <div className="text-[11px] mb-1" style={{ color: "#185FA5" }}>Commentaire de Sebast</div>
+            <textarea value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} rows={3}
+              placeholder="Écris ta revue de mon exécution…"
+              className="w-full text-sm rounded p-2" style={{ border: "1px solid #85B7EB", background: "#fff", color: "#0C447C" }} />
+            <div className="flex items-center gap-2 mt-1">
+              <button onClick={saveComment} disabled={savingComment}
+                className="text-xs px-3 py-1 rounded border border-border hover:bg-surface">{savingComment ? "…" : "Enregistrer"}</button>
+              {savedMsg && <span className="text-[11px] text-muted">{savedMsg}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -114,75 +165,27 @@ export default function DeskAgentTab() {
         <div className="text-[13px] font-medium text-muted mb-2">Calls ({calls.length})</div>
         <div className="space-y-1.5">
           {[...calls].reverse().map((c) => {
-            const isSel = sel && c.id === sel.id;
+            const isSel = c.id === selId;
             const win = c.review?.result === "win";
             const loss = c.review?.result === "loss";
             return (
-              <button key={c.id} onClick={() => setSelId(c.id)}
-                className={`w-full flex items-center gap-3 text-left rounded-md px-3 py-2 border ${isSel ? "border-blue border-2" : "border-border"} bg-surface hover:border-blue/50 transition-colors`}>
-                <span className="text-sm font-medium text-text w-12">{c.asset}</span>
-                {dirBadge(c.direction)}
-                <span className="text-[13px] text-muted truncate">{c.strategy}</span>
-                <span className="ml-auto text-sm font-medium" style={{ color: win ? "#15803D" : loss ? "#DC2626" : "#888780" }}>
-                  {c.status === "closed" && c.review?.pnl_usd != null ? (c.review.pnl_usd >= 0 ? "+" : "") + "$" + Math.round(c.review.pnl_usd) : "—"}
-                </span>
-                <span className="text-[11px] text-muted w-28 text-right">{fmtTime(c.datetime)} · {c.status === "closed" ? "Clos" : "En cours"}</span>
-              </button>
+              <div key={c.id}>
+                <button onClick={() => setSelId(isSel ? null : c.id)}
+                  className={`w-full flex items-center gap-3 text-left rounded-md px-3 py-2 border ${isSel ? "border-blue border-2" : "border-border"} bg-surface hover:border-blue/50 transition-colors`}>
+                  <span className="text-sm font-medium text-text w-12">{c.asset}</span>
+                  {dirBadge(c.direction)}
+                  <span className="text-[13px] text-muted truncate">{c.strategy}</span>
+                  <span className="ml-auto text-sm font-medium" style={{ color: win ? "#15803D" : loss ? "#DC2626" : "#888780" }}>
+                    {c.status === "closed" && c.review?.pnl_usd != null ? (c.review.pnl_usd >= 0 ? "+" : "") + "$" + Math.round(c.review.pnl_usd) : "—"}
+                  </span>
+                  <span className="text-[11px] text-muted w-28 text-right">{fmtTime(c.datetime)} · {c.status === "closed" ? "Clos" : "En cours"}</span>
+                </button>
+                {isSel && detailBlock(c)}
+              </div>
             );
           })}
         </div>
       </div>
-
-      {sel && (
-      <div className="bg-surface border border-border rounded-lg p-4">
-        <div className="flex items-center gap-2 flex-wrap mb-3">
-          <span className="text-sm font-medium text-text">{sel.asset}</span>
-          {dirBadge(sel.direction)}
-          <span className="text-[13px] text-muted">{sel.strategy} · {sel.entry_tf}</span>
-          <a href={tvUrl(sel.asset, sel.entry_tf)} target="_blank" rel="noopener noreferrer"
-            className="text-[11px] px-2 py-0.5 rounded border border-border hover:bg-blue/10 text-blue">Ouvrir dans TradingView ↗</a>
-          <span className="ml-auto text-[11px] px-2 py-0.5 rounded" style={{ background: "#E1F5EE", color: "#085041" }}>
-            {sel.status === "closed" ? "Clos" : "En cours"}
-            {sel.status === "closed" && sel.review?.pnl_usd != null ? ` · ${sel.review.pnl_usd >= 0 ? "+" : ""}$${Math.round(sel.review.pnl_usd)}` : ""}
-          </span>
-        </div>
-
-        <DeskAgentChart callId={sel.id} />
-
-        <div className="grid md:grid-cols-2 gap-5 border-t border-border pt-4 mt-3">
-          <div>
-            <div className="text-[13px] font-medium text-muted mb-2">Plan — avant le trade</div>
-            <Field label="Top-down" value={`${sel.topdown?.bias ?? "—"} — 4h ${sel.topdown?.h4 ?? "—"} · 1h ${sel.topdown?.h1 ?? "—"} · 15m ${sel.topdown?.m15 ?? "—"}`} />
-            <Field label="TF d'entrée · raison" value={`${sel.entry_tf} — ${sel.reason}`} />
-            <Field label="Entrée · SL" value={`${sel.entry} · SL ${sel.sl} (${sel.sl_rule})`} />
-            <Field label="TP · risque" value={`${sel.tp} — ${sel.tp_rule} · risque ${sel.risk_pct}% · RR visé ${sel.rr_target}:1`} />
-          </div>
-          <div>
-            <div className="text-[13px] font-medium text-muted mb-2">Revue — après le trade</div>
-            {sel.status === "closed" ? (
-              <>
-                <Field label="Résultat" value={<span style={{ color: sel.review.result === "win" ? "#15803D" : "#DC2626", fontWeight: 500 }}>{sel.review.result === "win" ? "Gain" : "Perte"}{sel.review.pnl_usd != null ? ` · ${sel.review.pnl_usd >= 0 ? "+" : ""}$${Math.round(sel.review.pnl_usd)}` : ""}{sel.review.r_realized != null ? ` (${sel.review.r_realized >= 0 ? "+" : ""}${sel.review.r_realized}R)` : ""}</span>} />
-                <Field label="Plan respecté ?" value={sel.review.plan_respected == null ? "—" : sel.review.plan_respected ? "Oui" : "Non"} />
-                <Field label="Leçon (agent)" value={sel.review.lesson || "—"} />
-              </>
-            ) : (
-              <div className="text-sm text-muted mb-3">Position ouverte — revue à remplir une fois clôturée.</div>
-            )}
-            <div className="rounded-md p-2.5 mt-1" style={{ background: "#E6F1FB", border: "1px solid #85B7EB" }}>
-              <div className="text-[11px] mb-1" style={{ color: "#185FA5" }}>Commentaire de Sebast</div>
-              <textarea value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} rows={3}
-                placeholder="Écris ta revue de mon exécution…"
-                className="w-full text-sm rounded p-2" style={{ border: "1px solid #85B7EB", background: "#fff", color: "#0C447C" }} />
-              <div className="flex items-center gap-2 mt-1">
-                <button onClick={saveComment} disabled={savingComment}
-                  className="text-xs px-3 py-1 rounded border border-border hover:bg-surface">{savingComment ? "…" : "Enregistrer"}</button>
-                {savedMsg && <span className="text-[11px] text-muted">{savedMsg}</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
     </div>
   );
 }
