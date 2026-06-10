@@ -34,6 +34,18 @@ export async function fetchPaperAverages(): Promise<PaperAveragesData> {
   return res.json();
 }
 
+export type PaperLiveAveragesData = {
+  n_paper: number; n_with_trades: number; n_trades: number;
+  total_pnl: number | null; win_rate: number | null; profit_factor: number | null;
+  avg_pnl_per_trade: number | null; last_trade_at: string | null;
+};
+
+export async function fetchPaperLiveAverages(): Promise<PaperLiveAveragesData> {
+  const res = await fetch(`${BASE}/paper-trader/live-averages`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchPaperLiveAverages: ${res.status}`);
+  return res.json();
+}
+
 export async function postAiPrompt(runId: string, prompt: string): Promise<Response> {
   return fetch(`${BASE}/ai`, {
     method: "POST",

@@ -1794,4 +1794,67 @@ def paper_trader_averages():
     }
 
 
+@app.get("/paper-trader/live-averages")
+def paper_trader_live_averages():
+    """Perf PAPER LIVE : agregee sur les VRAIS trades paper (paper_trades.csv).
+    Contrairement a /averages (KPIs backtest figes), CECI evolue au fil des trades reels."""
+    import json as _json, csv as _csv
+    runs_dir = get_runs_dir()
+    pnls = []
+    n_strat = 0
+    n_with_trades = 0
+    last_ts = None
+    if runs_dir.exists():
+        for d in runs_dir.iterdir():
+            if not d.is_dir():
+                continue
+            mp = d / "meta.json"
+            pt = d / "paper_trades.csv"
+            if not mp.exists():
+                continue
+            try:
+                meta = _json.loads(mp.read_text())
+            except Exception:
+                continue
+            if meta.get("d033", {}).get("deployment_stage") != "paper":
+                continue
+            n_strat += 1
+            if not pt.exists():
+                continue
+            had = False
+            try:
+                with open(pt) as f:
+                    for row in _csv.DictReader(f):
+                        try:
+                            pv = float(row.get("pnl", ""))
+                        except Exception:
+                            continue
+                        if pv != pv:
+                            continue
+                        pnls.append(pv)
+                        had = True
+                        lt = row.get("logged_at") or row.get("exit_ts")
+                        if lt and (last_ts is None or str(lt) > str(last_ts)):
+                            last_ts = lt
+            except Exception:
+                pass
+            if had:
+                n_with_trades += 1
+    n = len(pnls)
+    wins = [x for x in pnls if x > 0]
+    gross_w = sum(wins)
+    gross_l = -sum(x for x in pnls if x < 0)
+    pf = round(gross_w / gross_l, 2) if gross_l > 0 else (999.0 if gross_w > 0 else None)
+    return {
+        "n_paper": n_strat,
+        "n_with_trades": n_with_trades,
+        "n_trades": n,
+        "total_pnl": round(sum(pnls), 2) if n else None,
+        "win_rate": round(len(wins) / n * 100, 1) if n else None,
+        "profit_factor": pf,
+        "avg_pnl_per_trade": round(sum(pnls) / n, 2) if n else None,
+        "last_trade_at": last_ts,
+    }
+
+
 # ─── Pause / Resume global (S60) ────────────────────────────────────────────

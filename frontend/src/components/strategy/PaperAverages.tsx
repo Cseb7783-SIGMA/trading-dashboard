@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { fetchPaperAverages, type PaperAveragesData } from "@/lib/api";
+import { fetchPaperLiveAverages, type PaperLiveAveragesData } from "@/lib/api";
 
 function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -15,16 +15,16 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
 
 export default function PaperAverages() {
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState<PaperAveragesData | null>(null);
+  const [live, setLive] = useState<PaperLiveAveragesData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open && !data && !error) {
-      fetchPaperAverages().then(setData).catch((e) => setError(e.message));
+    if (open && !live && !error) {
+      fetchPaperLiveAverages().then(setLive).catch((e) => setError(e.message));
     }
-  }, [open, data, error]);
+  }, [open, live, error]);
 
-  const fmt = (v: number | null, suffix = "", sign = false) =>
+  const fmt = (v: number | null | undefined, suffix = "", sign = false) =>
     v === null || v === undefined ? "—" : `${sign && v > 0 ? "+" : ""}${v.toFixed(2)}${suffix}`;
 
   return (
@@ -33,24 +33,25 @@ export default function PaperAverages() {
         onClick={() => setOpen((o) => !o)}
         className="w-full flex justify-between items-center px-4 py-3 text-sm font-medium text-muted hover:text-foreground"
       >
-        <span>Moyennes des strategies en paper (benchmark)</span>
+        <span>Performance paper — vrais trades (live)</span>
         <ChevronDown className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="px-4 pb-4 border-t border-border pt-3">
           {error && <div className="text-xs text-red-500">Erreur : {error}</div>}
-          {!error && !data && <div className="text-xs text-muted">Chargement...</div>}
-          {data && (
+          {!error && !live && <div className="text-xs text-muted">Chargement...</div>}
+          {live && (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Metric label="PnL moyen" value={fmt(data.avg_pnl, " $", true)} sub={fmt(data.avg_pnl_pct, "%", true)} />
-                <Metric label="Max Drawdown moyen" value={fmt(data.avg_max_drawdown_pct, "%")} />
-                <Metric label="Trades gagnants moy." value={fmt(data.avg_win_rate, "%")} />
-                <Metric label="Profit Factor moyen" value={fmt(data.avg_profit_factor)} />
+                <Metric label="PnL total réel" value={fmt(live.total_pnl, " $", true)} sub={`${live.n_trades} trades`} />
+                <Metric label="Trades gagnants" value={fmt(live.win_rate, "%")} />
+                <Metric label="Profit Factor" value={fmt(live.profit_factor)} />
+                <Metric label="PnL moyen / trade" value={fmt(live.avg_pnl_per_trade, " $", true)} />
               </div>
               <div className="mt-2 text-[11px] text-muted">
-                Moyenne sur {data.n_valid} strategies en paper
-                {data.n_skipped ? ` (${data.n_skipped} sans KPIs valides, ignorees)` : ""}.
+                {live.n_with_trades}/{live.n_paper} stratégies ont des trades paper
+                {live.last_trade_at ? ` · dernier trade : ${String(live.last_trade_at).slice(0, 16)}` : ""}.
+                Évolue au fil des vrais trades.
               </div>
             </>
           )}
