@@ -16,9 +16,23 @@ type ChartData = {
 
 export default function DeskAgentChart({ callId, height = 360 }: { callId: string; height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const entryIdxRef = useRef<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [usedTf, setUsedTf] = useState<string | undefined>();
+  const [zoom, setZoom] = useState(true); // par défaut : zoomé sur l'entrée (niveaux lisibles)
+
+  function applyView(z: boolean) {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (z && entryIdxRef.current != null) {
+      const i = entryIdxRef.current;
+      chart.timeScale().setVisibleLogicalRange({ from: i - 22, to: i + 22 });
+    } else {
+      chart.timeScale().fitContent();
+    }
+  }
 
   useEffect(() => {
     let chart: IChartApi | null = null;
@@ -38,6 +52,7 @@ export default function DeskAgentChart({ callId, height = 360 }: { callId: strin
           rightPriceScale: { borderColor: "#e5e7eb44" },
           timeScale: { borderColor: "#e5e7eb44", timeVisible: true },
         });
+        chartRef.current = chart;
         const candle = chart.addSeries(CandlestickSeries, {
           upColor: "#15803D", downColor: "#DC2626", borderUpColor: "#15803D",
           borderDownColor: "#DC2626", wickUpColor: "#15803D", wickDownColor: "#DC2626",
@@ -58,14 +73,29 @@ export default function DeskAgentChart({ callId, height = 360 }: { callId: strin
         addLine(d.ema20, "#EF9F27");
         addLine(d.ema50, "#A32D2D");
         addLine(d.avwap, "#7F77DD", 2);
+
         const lv = d.levels || {};
-        const pl = (price: number | undefined, color: string, title: string) => {
+        // Lignes de trade : épaisses, colorées, avec le PRIX dans l'étiquette.
+        const pl = (price: number | undefined, color: string, label: string, dashed = false) => {
           if (price == null) return;
-          candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title });
+          candle.createPriceLine({
+            price, color, lineWidth: 2,
+            lineStyle: dashed ? LineStyle.Dashed : LineStyle.Solid,
+            axisLabelVisible: true, title: `${label} ${price.toFixed(2)}`,
+          });
         };
-        pl(lv.entry, "#888780", "Entrée");
-        pl(lv.sl, "#DC2626", "SL");
         pl(lv.tp, "#15803D", "TP");
+        pl(lv.entry, "#2563EB", "Entrée", true);
+        pl(lv.sl, "#DC2626", "SL");
+
+        // index de la bougie d'entrée (pour le zoom)
+        let ei: number | null = null;
+        if (lv.entry_time) {
+          ei = d.bars.findIndex((b) => b.time >= (lv.entry_time as number));
+          if (ei < 0) ei = d.bars.length - 1;
+        }
+        entryIdxRef.current = ei;
+
         if (lv.entry_time) {
           const short = (lv.direction || "").toLowerCase() === "short";
           createSeriesMarkers(candle, [{
@@ -76,18 +106,27 @@ export default function DeskAgentChart({ callId, height = 360 }: { callId: strin
             text: short ? "SHORT" : "LONG",
           }]);
         }
-        chart.timeScale().fitContent();
+
+        applyView(zoom); // vue initiale (zoom entrée par défaut)
         ro = new ResizeObserver(() => { if (ref.current && chart) chart.applyOptions({ width: ref.current.clientWidth }); });
         ro.observe(ref.current);
         chart.applyOptions({ width: ref.current.clientWidth });
         setLoading(false);
       })
       .catch((e) => { if (!disposed) { setErr(String(e.message || e)); setLoading(false); } });
-    return () => { disposed = true; if (ro) ro.disconnect(); if (chart) chart.remove(); };
+    return () => { disposed = true; if (ro) ro.disconnect(); if (chart) chart.remove(); chartRef.current = null; };
   }, [callId, height]);
 
   return (
     <div>
+      <div className="flex items-center justify-end mb-1">
+        <button
+          onClick={() => { const nz = !zoom; setZoom(nz); applyView(nz); }}
+          className="text-[11px] px-2 py-1 rounded border border-border hover:bg-blue/10 text-blue"
+        >
+          {zoom ? "↔ Vue complète" : "🔍 Zoom entrée"}
+        </button>
+      </div>
       <div ref={ref} style={{ width: "100%" }} />
       {loading && <div className="text-xs text-muted py-2">Chargement du chart…</div>}
       {err && <div className="text-xs text-muted py-2">Chart indisponible (code {err}) — données peut-être absentes pour cet actif / timeframe.</div>}
@@ -97,7 +136,7 @@ export default function DeskAgentChart({ callId, height = 360 }: { callId: strin
           <span><span style={{ display: "inline-block", width: 14, height: 3, background: "#EF9F27", verticalAlign: "middle", marginRight: 4 }} />EMA20</span>
           <span><span style={{ display: "inline-block", width: 14, height: 3, background: "#A32D2D", verticalAlign: "middle", marginRight: 4 }} />EMA50</span>
           <span><span style={{ display: "inline-block", width: 14, height: 3, background: "#7F77DD", verticalAlign: "middle", marginRight: 4 }} />AVWAP</span>
-          <span>· lignes Entrée / SL / TP{usedTf ? ` · TF ${usedTf}` : ""}</span>
+          <span>· <span style={{ color: "#2563EB" }}>Entrée</span> / <span style={{ color: "#DC2626" }}>SL</span> / <span style={{ color: "#15803D" }}>TP</span>{usedTf ? ` · TF ${usedTf}` : ""}</span>
         </div>
       )}
     </div>
