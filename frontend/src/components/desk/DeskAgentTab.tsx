@@ -89,6 +89,17 @@ export default function DeskAgentTab() {
   const rVals = closed.map((c) => c.review.r_realized).filter((v): v is number => typeof v === "number");
   const rAvg = rVals.length ? rVals.reduce((a, b) => a + b, 0) / rVals.length : null;
 
+  // Séries consécutives max (ConsW / ConsL) — trades clôturés, ordre chronologique
+  const chrono = [...closed].sort((a, b) =>
+    String(a.entry_ts || a.datetime || "").localeCompare(String(b.entry_ts || b.datetime || "")));
+  let maxConsW = 0, maxConsL = 0, curW = 0, curL = 0;
+  for (const c of chrono) {
+    const res = c.review?.result;
+    if (res === "win") { curW++; curL = 0; if (curW > maxConsW) maxConsW = curW; }
+    else if (res === "loss") { curL++; curW = 0; if (curL > maxConsL) maxConsL = curL; }
+    else { curW = 0; curL = 0; }
+  }
+
   const metric = (label: string, value: string, accent?: boolean) => (
     <div className={`rounded-md px-4 py-3 ${accent ? "bg-blue/10" : "bg-surface"}`}>
       <div className="text-[13px] text-muted mb-1">{label}</div>
@@ -154,11 +165,13 @@ export default function DeskAgentTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {metric("Total PnL", (totalPnl >= 0 ? "+" : "") + "$" + totalPnl.toFixed(2))}
         {metric("Trades gagnants", closed.length ? Math.round((wins / closed.length) * 100) + "%" : "—")}
         {metric("Plan respecté", closed.length ? Math.round((planOk / closed.length) * 100) + "%" : "—", true)}
         {metric("R moyen", rAvg !== null ? (rAvg >= 0 ? "+" : "") + rAvg.toFixed(1) + "R" : "—", true)}
+        {metric("Gains conséc. max (ConsW)", String(maxConsW))}
+        {metric("Pertes conséc. max (ConsL)", String(maxConsL))}
       </div>
 
       <div>
