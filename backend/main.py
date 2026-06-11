@@ -1168,6 +1168,49 @@ def fetch_new_scout_content():
         raise HTTPException(status_code=500, detail=f"Fetch failed : {e}")
 
 
+@app.get("/scout/briefs")
+def list_scout_briefs():
+    """Liste les briefs quotidiens du Scout (docs/scout/scout_brief_*.md) — les plus récents d'abord."""
+    import re as _re
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    sd = trading_lab_root / "docs" / "scout"
+    out = []
+    if sd.exists():
+        for fp in sorted(sd.glob("scout_brief_*.md"), reverse=True):
+            try:
+                txt = fp.read_text(errors="ignore")
+            except Exception:
+                continue
+            date = fp.stem.replace("scout_brief_", "")
+            # résumé = 1re ligne de contenu après le TL;DR, sinon 1er paragraphe
+            summary = ""
+            m = _re.search(r"TL;DR\)?\s*\n+\s*(.+)", txt)
+            if m:
+                summary = m.group(1).strip()
+            else:
+                for line in txt.splitlines():
+                    s = line.strip()
+                    if s and not s.startswith("#"):
+                        summary = s
+                        break
+            out.append({"name": fp.name, "date": date, "summary": summary[:240], "chars": len(txt)})
+    return {"briefs": out}
+
+
+@app.get("/scout/briefs/{name}")
+def get_scout_brief(name: str):
+    """Retourne le contenu markdown d'un brief Scout."""
+    if not name.startswith("scout_brief_") or not name.endswith(".md") or "/" in name or ".." in name:
+        raise HTTPException(status_code=400, detail="nom de brief invalide")
+    runs_dir = get_runs_dir()
+    trading_lab_root = runs_dir.resolve().parent.parent
+    fp = trading_lab_root / "docs" / "scout" / name
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="brief introuvable")
+    return {"name": name, "content": fp.read_text(errors="ignore")}
+
+
 @app.get("/scout/inbox")
 def get_scout_inbox(status: str | None = None, source: str | None = None):
     """Liste les items dans docs/scout/inbox/ (parsing markdown front-matter).

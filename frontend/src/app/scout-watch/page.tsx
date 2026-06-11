@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Eye, RefreshCw, Plus, Sparkles, Flag, Clock, X, ExternalLink, Inbox, Users, FileText, Lightbulb } from "lucide-react";
 import ScoutTradersTab from "@/components/scout/ScoutTradersTab";
 import ScoutHypothesesTab from "@/components/scout/ScoutHypothesesTab";
+import ScoutBriefsTab from "@/components/scout/ScoutBriefsTab";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -227,16 +228,7 @@ export default function ScoutWatchPage() {
       {/* Tab content */}
       {activeTab === "traders" && <ScoutTradersTab />}
       {activeTab === "hypotheses" && <ScoutHypothesesTab />}
-      {activeTab === "briefs" && (
-        <div className="bg-surface border border-border rounded-lg p-8 text-center">
-          <FileText size={32} className="mx-auto mb-3 text-muted opacity-50" />
-          <h3 className="text-sm font-medium mb-1">Historique des briefs</h3>
-          <p className="text-xs text-muted max-w-md mx-auto">
-            Cette section conservera l'historique des Trader Discovery Briefs générés (Implémenter / Investiguer / Skip).
-            Disponible après le premier brief approuvé par Sebast.
-          </p>
-        </div>
-      )}
+      {activeTab === "briefs" && <ScoutBriefsTab />}
       {activeTab === "content" && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-surface border border-border rounded-lg p-4">
