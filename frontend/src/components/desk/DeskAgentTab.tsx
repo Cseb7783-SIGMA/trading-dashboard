@@ -12,7 +12,7 @@ type Review = {
 type TopDown = { bias?: string; h4?: string; h1?: string; m15?: string };
 type Call = {
   id: string; datetime: string; asset: string; direction: string; strategy: string;
-  run_id: string | null; entry_tf: string; topdown: TopDown; reason: string;
+  run_id: string | null; entry_tf: string; topdown: TopDown; reason: string; trigger?: string | null;
   entry: number; sl: number; sl_rule: string; tp: number; tp_rule: string;
   risk_pct: number; rr_target: number; status: string;
   entry_ts: string | null; exit_ts: string | null; review: Review;
@@ -132,6 +132,7 @@ export default function DeskAgentTab() {
         <div>
           <div className="text-[13px] font-medium text-muted mb-2">Plan — avant le trade</div>
           <Field label="Top-down" value={`${c.topdown?.bias ?? "—"} — 4h ${c.topdown?.h4 ?? "—"} · 1h ${c.topdown?.h1 ?? "—"} · 15m ${c.topdown?.m15 ?? "—"}`} />
+          {c.trigger ? <Field label="Trigger (déclencheur de la stratégie)" value={<span className="text-sm font-semibold" style={{ color: "#185FA5" }}>{c.trigger}</span>} /> : null}
           <Field label="TF d'entrée · raison" value={`${c.entry_tf} — ${c.reason}`} />
           <Field label="Entrée · SL" value={`${c.entry} · SL ${c.sl} (${c.sl_rule})`} />
           <Field label="TP · risque" value={`${c.tp} — ${c.tp_rule} · risque ${c.risk_pct}% · RR visé ${c.rr_target}:1`} />
