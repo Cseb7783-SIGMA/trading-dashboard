@@ -100,6 +100,37 @@ export default function DeskAgentTab() {
     else { curW = 0; curL = 0; }
   }
 
+  // Perf par stratégie × actif (regroupe les calls clôturés)
+  const fmtUsd = (v: number) => (v >= 0 ? "+" : "−") + "$" + Math.abs(Math.round(v));
+  const _groups: Record<string, { strategy: string; asset: string; tf: string; chrono: Call[] }> = {};
+  for (const c of closed) {
+    const key = `${c.strategy}|${c.asset}`;
+    if (!_groups[key]) _groups[key] = { strategy: c.strategy, asset: c.asset, tf: c.entry_tf, chrono: [] };
+    _groups[key].chrono.push(c);
+  }
+  const perStrat = Object.values(_groups).map((g) => {
+    const ch = [...g.chrono].sort((a, b) =>
+      String(a.entry_ts || a.datetime || "").localeCompare(String(b.entry_ts || b.datetime || "")));
+    const n = ch.length;
+    const pnl = ch.reduce((s, c) => s + (c.review.pnl_usd || 0), 0);
+    const w = ch.filter((c) => c.review.result === "win").length;
+    const pOk = ch.filter((c) => c.review.plan_respected === true).length;
+    const rs = ch.map((c) => c.review.r_realized).filter((v): v is number => typeof v === "number");
+    let mW = 0, mL = 0, cW = 0, cL = 0;
+    for (const c of ch) {
+      const r = c.review?.result;
+      if (r === "win") { cW++; cL = 0; if (cW > mW) mW = cW; }
+      else if (r === "loss") { cL++; cW = 0; if (cL > mL) mL = cL; }
+      else { cW = 0; cL = 0; }
+    }
+    return {
+      strategy: g.strategy, asset: g.asset, tf: g.tf, n, pnl,
+      wr: n ? (w / n) * 100 : 0,
+      rAvg: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
+      plan: n ? (pOk / n) * 100 : 0, consW: mW, consL: mL,
+    };
+  }).sort((a, b) => b.pnl - a.pnl);
+
   const metric = (label: string, value: string, accent?: boolean) => (
     <div className={`rounded-md px-4 py-3 ${accent ? "bg-blue/10" : "bg-surface"}`}>
       <div className="text-[13px] text-muted mb-1">{label}</div>
@@ -174,6 +205,52 @@ export default function DeskAgentTab() {
         {metric("ConsW", String(maxConsW))}
         {metric("ConsL", String(maxConsL))}
       </div>
+
+      {perStrat.length > 0 && (
+        <div>
+          <div className="text-[13px] font-medium text-muted mb-2">Performance par stratégie appliquée</div>
+          <div className="bg-surface border border-border rounded-lg overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[12px] text-muted">
+                  <th className="text-left px-3 py-2 font-medium">Stratégie (utilisations)</th>
+                  <th className="text-right px-2 py-2 font-medium">PnL total</th>
+                  <th className="text-right px-2 py-2 font-medium">WR</th>
+                  <th className="text-right px-2 py-2 font-medium">R moyen</th>
+                  <th className="text-right px-2 py-2 font-medium">Plan</th>
+                  <th className="text-right px-2 py-2 font-medium">ConsW</th>
+                  <th className="text-right px-3 py-2 font-medium">ConsL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perStrat.map((g) => (
+                  <tr key={g.strategy + "|" + g.asset} className="border-t border-border">
+                    <td className="px-3 py-2">
+                      <span className="text-text">{g.strategy} <span className="text-muted">({g.n})</span></span>
+                      <div className="text-[11px] text-muted">{g.asset} · {g.tf}</div>
+                    </td>
+                    <td className="text-right px-2 py-2 font-medium" style={{ color: g.pnl >= 0 ? "#15803D" : "#DC2626" }}>{fmtUsd(g.pnl)}</td>
+                    <td className="text-right px-2 py-2" style={{ color: g.wr >= 50 ? undefined : "#DC2626" }}>{Math.round(g.wr)}%</td>
+                    <td className="text-right px-2 py-2" style={{ color: g.rAvg == null ? undefined : g.rAvg >= 0 ? "#15803D" : "#DC2626" }}>{g.rAvg == null ? "—" : (g.rAvg >= 0 ? "+" : "") + g.rAvg.toFixed(1) + "R"}</td>
+                    <td className="text-right px-2 py-2">{Math.round(g.plan)}%</td>
+                    <td className="text-right px-2 py-2">{g.consW}</td>
+                    <td className="text-right px-3 py-2">{g.consL}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-border bg-surface-hover font-medium">
+                  <td className="px-3 py-2">Total <span className="text-muted">({closed.length})</span></td>
+                  <td className="text-right px-2 py-2" style={{ color: totalPnl >= 0 ? "#15803D" : "#DC2626" }}>{fmtUsd(totalPnl)}</td>
+                  <td className="text-right px-2 py-2">{closed.length ? Math.round((wins / closed.length) * 100) : 0}%</td>
+                  <td className="text-right px-2 py-2">{rAvg !== null ? (rAvg >= 0 ? "+" : "") + rAvg.toFixed(1) + "R" : "—"}</td>
+                  <td className="text-right px-2 py-2">{closed.length ? Math.round((planOk / closed.length) * 100) : 0}%</td>
+                  <td className="text-right px-2 py-2">{maxConsW}</td>
+                  <td className="text-right px-3 py-2">{maxConsL}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="text-[13px] font-medium text-muted mb-2">Calls ({calls.length})</div>
