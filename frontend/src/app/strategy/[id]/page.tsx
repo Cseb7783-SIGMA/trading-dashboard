@@ -239,6 +239,13 @@ export default function StrategyPage() {
           <KPICards kpis={run.kpis} />
         </div>
 
+        {run.signum_score != null && (
+          <div className="mt-4 bg-surface border border-border rounded-lg px-4 py-3 flex items-center justify-between">
+            <span className="text-sm text-muted">Risk-Score <span className="text-[11px]">(robustesse ajustée au risque — Calmar/Sortino/Martin, shrink petit échantillon)</span></span>
+            <span className="text-lg font-medium" style={{ color: "#185FA5" }}>{run.signum_score.toFixed(2)}</span>
+          </div>
+        )}
+
         <div className="mt-4">
           <TvValidationPanel runId={decodeURIComponent(id)} />
         </div>

@@ -31,6 +31,7 @@ type PaperStrategy = {
   rr_paper: number | null;
   dd_backtest: number;
   dd_paper: number | null;
+  signum_score: number | null;
   status: "confirmed" | "in_progress" | "drift" | "stopped";
 };
 
@@ -177,6 +178,7 @@ function runToPaperStrategy(run: Run): PaperStrategy {
     tier_davey: run.d033?.tier_davey,
     tags: run.tags || [],
     created_at: run.created_at,
+    signum_score: run.signum_score ?? null,
     paperDays: 0,
     tradesPaper: 0,
     tradesRequired: style === "scalping" ? 100 : 30,
@@ -197,7 +199,7 @@ export default function PaperTradePage() {
   const [tab, setTab] = useState<"scalping" | "swing" | "desk_agent">("scalping");
   const [query, setQuery] = useState("");
   // S61 — Tri par colonne (null = tri par défaut Option C)
-  type SortColumn = "pf" | "wr" | "rr" | "dd" | "sample" | null;
+  type SortColumn = "pf" | "wr" | "rr" | "dd" | "sample" | "score" | null;
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const handleSort = (col: Exclude<SortColumn, null>) => {
@@ -367,6 +369,7 @@ export default function PaperTradePage() {
             case "rr": return s.rr_paper ?? -Infinity;
             case "dd": return s.dd_paper ?? -Infinity;
             case "sample": return s.tradesPaper;
+            case "score": return s.signum_score ?? -Infinity;
             default: return 0;
           }
         };
@@ -686,6 +689,9 @@ export default function PaperTradePage() {
                 <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("sample")} title="Trier par nombre de trades">
                   Sample {sortColumn === "sample" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
                 </th>
+                <th className="text-right px-4 py-3 cursor-pointer hover:text-text select-none" onClick={() => handleSort("score")} title="Risk-Score : robustesse ajustée au risque (Calmar/Sortino/Martin, shrink petit échantillon)">
+                  Risk-Score {sortColumn === "score" && <span className="ml-0.5">{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </th>
 
               </tr>
             </thead>
@@ -797,6 +803,10 @@ export default function PaperTradePage() {
                         {s.tradesPaper}/{s.tradesRequired}
                       </div>
                       <div className="text-[10px] text-muted/70">{s.paperDays}j</div>
+                    </td>
+
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-medium" style={{ color: s.signum_score != null ? "#185FA5" : undefined }}>{s.signum_score != null ? s.signum_score.toFixed(2) : "—"}</span>
                     </td>
 
                   </tr>
