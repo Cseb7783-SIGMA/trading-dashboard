@@ -26,6 +26,16 @@ export async function fetchTvValidation(runId: string): Promise<TvValidationData
   return res.json();
 }
 
+export async function parseTvCsv(csvText: string): Promise<{ pf: number | null; net_pct: number | null; max_dd_pct: number | null; trades: number | null; win_rate: number | null; note_auto: string }> {
+  const res = await fetch(`${BASE}/tv-validation/parse-csv`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ csv_text: csvText }),
+  });
+  if (!res.ok) throw new Error(`parseTvCsv: ${res.status}`);
+  return res.json();
+}
+
 export async function saveTvValidation(runId: string, body: { pf?: number; net_pct?: number; max_dd_pct?: number; trades?: number; note?: string }): Promise<void> {
   const res = await fetch(`${BASE}/runs/${encodeURIComponent(runId)}/tv-validation`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),

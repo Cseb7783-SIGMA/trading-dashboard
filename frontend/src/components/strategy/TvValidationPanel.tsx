@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { ChevronDown, Check, AlertTriangle } from "lucide-react";
-import { fetchTvValidation, saveTvValidation, type TvValidationData } from "@/lib/api";
+import { fetchTvValidation, saveTvValidation, parseTvCsv, type TvValidationData } from "@/lib/api";
 
 type Row = { key: "pf" | "net_pct" | "max_dd_pct" | "trades"; label: string; suffix: string; tol: number };
 const ROWS: Row[] = [
@@ -47,6 +47,25 @@ export default function TvValidationPanel({ runId }: { runId: string }) {
     finally { setSaving(false); setTimeout(() => setMsg(null), 3000); }
   }
 
+  async function onImport(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setErr(null); setMsg("Lecture du CSV…");
+    try {
+      const text = await file.text();
+      const r = await parseTvCsv(text);
+      const d = { ...draft };
+      if (r.pf != null) d.pf = String(r.pf);
+      if (r.net_pct != null) d.net_pct = String(r.net_pct);
+      if (r.max_dd_pct != null) d.max_dd_pct = String(r.max_dd_pct);
+      if (r.trades != null) d.trades = String(r.trades);
+      setDraft(d);
+      setNote(r.note_auto + (r.win_rate != null ? ` WR ${r.win_rate}%.` : ""));
+      setMsg("Importé ✓ — vérifie puis Enregistrer");
+    } catch (e: any) { setErr(String(e.message || e)); setMsg(null); }
+  }
+
   // verdict global : toutes les métriques saisies dans la tolérance ?
   let allOk = true, anyTv = false;
   if (data) ROWS.forEach((r) => {
@@ -70,6 +89,13 @@ export default function TvValidationPanel({ runId }: { runId: string }) {
           <p className="text-[11px] text-muted mb-3">
             Backteste cette stratégie dans TradingView (même période), puis entre les KPIs TV ici. Si l'écart avec le moteur est faible → le backtest est fiable.
           </p>
+          <div className="mb-3">
+            <label className="text-xs px-3 py-1 rounded border border-border hover:bg-blue/10 text-blue cursor-pointer inline-flex items-center gap-1">
+              Importer le rapport TV (CSV)
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={onImport} />
+            </label>
+            <span className="text-[11px] text-muted ml-2">Auto-remplit PF · net % · max DD % · trades depuis la liste de trades TV.</span>
+          </div>
           {err && <div className="text-xs text-red-500 mb-2">Erreur : {err}</div>}
           {!data && !err && <div className="text-xs text-muted">Chargement…</div>}
           {data && (

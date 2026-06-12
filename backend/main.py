@@ -604,6 +604,73 @@ def set_tv_validation(run_id: str, body: _TvValidation):
     return {"ok": True, "run_id": run_id, "tv_validation": tv}
 
 
+class _TvCsv(_TVBase):
+    csv_text: str = ""
+
+
+@app.post("/tv-validation/parse-csv")
+def parse_tv_csv(body: _TvCsv):
+    """Parse une liste de trades exportee de TradingView (CSV Strategy Tester) ->
+    PF / WR / net % / max DD % / nb trades, pour auto-remplir la validation TV.
+
+    - Exclut le trade encore ouvert (Signal de sortie 'Open') pour PF/WR/nb trades (= comptage TV).
+    - net % = derniere 'Cumulative PnL %' (inclut le MTM du trade ouvert, comme le total TV).
+    - max DD % = pic-creux de 'Cumulative PnL %' (APPROX : calcule sur l'equity de cloture)."""
+    import csv as _csv, io as _io
+    txt = body.csv_text or ""
+    try:
+        rdr = _csv.DictReader(_io.StringIO(txt))
+        cols = list(rdr.fieldnames or [])
+    except Exception:
+        raise HTTPException(status_code=400, detail="CSV illisible")
+
+    def find(pred):
+        for c in cols:
+            if pred(c.strip().lower().lstrip("﻿")):
+                return c
+        return None
+
+    type_c = find(lambda c: c == "type")
+    sig_c = find(lambda c: c == "signal")
+    netabs_c = find(lambda c: c.startswith("net pnl") and not c.endswith("%"))
+    cumpct_c = find(lambda c: c.startswith("cumulative pnl") and c.endswith("%"))
+    if not type_c or not netabs_c:
+        raise HTTPException(status_code=400,
+                            detail="Format CSV TradingView non reconnu (colonnes Type / Net PnL manquantes)")
+
+    def fnum(x):
+        try:
+            return float(str(x).replace(",", "").strip() or 0)
+        except Exception:
+            return 0.0
+
+    rows = list(rdr)
+    exits = [r for r in rows if str(r.get(type_c, "")).strip().lower().startswith("exit")]
+    closed = [r for r in exits if str(r.get(sig_c, "")).strip().lower() != "open"] if sig_c else exits
+    pnls = [fnum(r.get(netabs_c)) for r in closed]
+    n = len(pnls)
+    wins = sum(1 for p in pnls if p > 0)
+    gw = sum(p for p in pnls if p > 0)
+    gl = -sum(p for p in pnls if p < 0)
+    pf = round(gw / gl, 3) if gl > 0 else (None if gw == 0 else 999.0)
+    wr = round(wins / n * 100, 2) if n else None
+
+    cum = [fnum(r.get(cumpct_c)) for r in exits] if cumpct_c else []
+    net_pct = round(cum[-1], 2) if cum else None
+    dd, peak = 0.0, -1e18
+    for v in cum:
+        peak = max(peak, v)
+        dd = max(dd, peak - v)
+    max_dd_pct = round(dd, 2) if cum else None
+
+    return {
+        "pf": pf, "net_pct": net_pct, "max_dd_pct": max_dd_pct, "trades": n, "win_rate": wr,
+        "note_auto": (f"Importe du CSV TradingView — {n} trades clotures"
+                      + (", trade ouvert exclu" if len(exits) != len(closed) else "")
+                      + ". Max DD % approximatif (equity de cloture)."),
+    }
+
+
 # ─── Paper Trader Native — orchestration (S59 Phase B) ──────────────────────
 @app.post("/paper-trader/{run_id}/start")
 def paper_trader_start(run_id: str):
