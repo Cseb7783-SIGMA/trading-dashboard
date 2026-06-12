@@ -14,6 +14,25 @@ export async function fetchRun(runId: string): Promise<RunDetail> {
   return res.json();
 }
 
+export type TvValidationData = {
+  run_id: string;
+  engine: { pf?: number | null; net_pct?: number | null; max_dd_pct?: number | null; trades?: number | null };
+  tv: { pf?: number; net_pct?: number; max_dd_pct?: number; trades?: number; note?: string; verified_at?: string };
+};
+
+export async function fetchTvValidation(runId: string): Promise<TvValidationData> {
+  const res = await fetch(`${BASE}/runs/${encodeURIComponent(runId)}/tv-validation`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchTvValidation: ${res.status}`);
+  return res.json();
+}
+
+export async function saveTvValidation(runId: string, body: { pf?: number; net_pct?: number; max_dd_pct?: number; trades?: number; note?: string }): Promise<void> {
+  const res = await fetch(`${BASE}/runs/${encodeURIComponent(runId)}/tv-validation`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`saveTvValidation: ${res.status}`);
+}
+
 export function getStreamUrl(): string {
   return `${BASE}/stream`;
 }

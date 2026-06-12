@@ -552,6 +552,58 @@ def activate_run(run_id: str, body: ActivateRequest):
 
 
 
+from pydantic import BaseModel as _TVBase
+
+
+class _TvValidation(_TVBase):
+    pf: float | None = None
+    net_pct: float | None = None
+    max_dd_pct: float | None = None
+    trades: int | None = None
+    note: str | None = None
+
+
+@app.get("/runs/{run_id}/tv-validation")
+def get_tv_validation(run_id: str):
+    """KPIs moteur + KPIs TradingView vérifiés (saisis par Sebast) pour comparaison côte à côte."""
+    runs_dir = get_runs_dir()
+    rd = runs_dir / run_id
+    mp = rd / "meta.json"
+    kp = rd / "kpis.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="run introuvable")
+    meta = json.loads(mp.read_text(encoding="utf-8"))
+    engine = {}
+    if kp.exists():
+        try:
+            k = json.loads(kp.read_text(encoding="utf-8"))
+            engine = {
+                "pf": k.get("ratios", {}).get("profit_factor"),
+                "net_pct": k.get("pnl", {}).get("net_profit_pct"),
+                "max_dd_pct": k.get("drawdown", {}).get("max_drawdown_pct"),
+                "trades": k.get("trade_counts", {}).get("total"),
+            }
+        except Exception:
+            pass
+    return {"run_id": run_id, "engine": engine, "tv": meta.get("tv_validation", {})}
+
+
+@app.post("/runs/{run_id}/tv-validation")
+def set_tv_validation(run_id: str, body: _TvValidation):
+    """Persiste les KPIs TradingView vérifiés par Sebast dans meta.json (champ tv_validation)."""
+    from datetime import datetime as _dt
+    runs_dir = get_runs_dir()
+    mp = runs_dir / run_id / "meta.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="run introuvable")
+    meta = json.loads(mp.read_text(encoding="utf-8"))
+    tv = {kk: vv for kk, vv in body.model_dump().items() if vv is not None}
+    tv["verified_at"] = _dt.now().isoformat()
+    meta["tv_validation"] = tv
+    mp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "run_id": run_id, "tv_validation": tv}
+
+
 # ─── Paper Trader Native — orchestration (S59 Phase B) ──────────────────────
 @app.post("/paper-trader/{run_id}/start")
 def paper_trader_start(run_id: str):

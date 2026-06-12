@@ -5,6 +5,7 @@ import { Code, ExternalLink, ArrowRight, Hammer, FlaskConical, Briefcase, Buildi
 import { fetchRun } from "@/lib/api";
 import type { RunDetail } from "@/lib/types";
 import KPICards from "@/components/strategy/KPICards";
+import TvValidationPanel from "@/components/strategy/TvValidationPanel";
 import EquityCurve from "@/components/strategy/EquityCurve";
 import DrawdownChart from "@/components/strategy/DrawdownChart";
 import TradeScatter from "@/components/strategy/TradeScatter";
@@ -235,6 +236,10 @@ export default function StrategyPage() {
             </div>
           </div>
           <KPICards kpis={run.kpis} />
+        </div>
+
+        <div className="mt-4">
+          <TvValidationPanel runId={decodeURIComponent(id)} />
         </div>
 
         {/* Paper Trader Live (S59 Phase B) — visible uniquement si deployment_stage = paper */}
