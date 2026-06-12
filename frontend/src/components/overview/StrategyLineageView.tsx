@@ -28,6 +28,7 @@ import {
 type TierFilter = "all" | "STATISTICALLY_ROBUST" | "HIGH" | "MEDIUM" | "LOW" | "Archive";
 type StyleFilter = "all" | "scalping" | "swing";
 type StageFilter = "all" | "paper" | "rd";
+type ScoreFilter = "all" | "0.8" | "0.6" | "0.4";
 type CategoryFilter = "all" | AssetCategory;
 type PeriodFilter = "all_time" | "12m" | "6m" | "3m" | "1m" | "7d" | "24h";
 
@@ -43,6 +44,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
   const [styleFilter, setStyleFilter] = useState<StyleFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [stageFilter, setStageFilter] = useState<StageFilter>("paper");
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>("all");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all_time");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
 
@@ -60,7 +62,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
 
   // Helper : filter runs based on selected filters, optionally excluding one section
   // Used to compute "dynamic" counts that reflect cross-filter intersection (S61)
-  const filterRunsExcept = (excludeSection: "style" | "tier" | "stage" | "period" | "category" | null) => {
+  const filterRunsExcept = (excludeSection: "style" | "tier" | "stage" | "period" | "category" | "score" | null) => {
     return tree.flatMap((fam) =>
       fam.versions.flatMap((v) => v.runs)
     ).filter((lr) => {
@@ -76,6 +78,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
       }
       if (excludeSection !== "period" && !isWithinPeriod(lr.run.created_at, periodFilter)) return false;
       if (excludeSection !== "category" && categoryFilter !== "all" && lr.category !== categoryFilter) return false;
+      if (excludeSection !== "score" && scoreFilter !== "all" && (lr.run.signum_score ?? -1) < parseFloat(scoreFilter)) return false;
       return true;
     });
   };
@@ -90,7 +93,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
       else if (lr.run.d033?.style === "swing") swing++;
     }
     return { scalping, swing, all: runs.length };
-  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter]);
+  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter, scoreFilter]);
 
   const tierCounts = useMemo(() => {
     const runs = filterRunsExcept("tier");
@@ -101,7 +104,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
       else c.Archive++;
     }
     return c;
-  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter]);
+  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter, scoreFilter]);
 
   const stageCounts = useMemo(() => {
     const runs = filterRunsExcept("stage");
@@ -111,7 +114,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
       else rd++;
     }
     return { paper, rd, all: runs.length };
-  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter]);
+  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter, scoreFilter]);
 
   const categoryCounts = useMemo(() => {
     const runs = filterRunsExcept("category");
@@ -121,7 +124,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
     };
     for (const lr of runs) c[lr.category]++;
     return c;
-  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter]);
+  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter, scoreFilter]);
 
   // Apply filters to tree (filter runs at the leaf, then prune empty versions/families)
   const filteredTree: LineageTree = useMemo(() => {
@@ -162,7 +165,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
       "7d": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "7d")).length,
       "24h": baseRuns.filter((lr) => isWithinPeriod(lr.run.created_at, "24h")).length,
     };
-  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter]);
+  }, [tree, styleFilter, tierFilter, stageFilter, categoryFilter, scoreFilter]);
 
   return (
     <div className="grid grid-cols-[140px_1fr] gap-4">
@@ -219,6 +222,22 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
         />
 
         <FilterSection
+          label="Risk-Score"
+          options={(() => {
+            const runs = filterRunsExcept("score");
+            const ge = (t: number) => runs.filter((lr) => (lr.run.signum_score ?? -1) >= t).length;
+            return [
+              { id: "all", label: "Tous", count: runs.length },
+              { id: "0.8", label: "≥ 0.80", count: ge(0.8), color: "robust" },
+              { id: "0.6", label: "≥ 0.60", count: ge(0.6), color: "high" },
+              { id: "0.4", label: "≥ 0.40", count: ge(0.4) },
+            ];
+          })()}
+          selected={scoreFilter}
+          onSelect={(s) => setScoreFilter(s as ScoreFilter)}
+        />
+
+        <FilterSection
           label="Stage"
           options={[
             { id: "all", label: "Toutes", count: stageCounts.all },
@@ -260,10 +279,10 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
         />
 
         {/* Column header */}
-        <div className="grid items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wider text-muted" style={{ gridTemplateColumns: "90px 1fr 50px 50px 50px 50px 45px 55px" }}>
+        <div className="grid items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wider text-muted" style={{ gridTemplateColumns: "90px 1fr 64px 50px 50px 50px 45px 55px" }}>
           <span>Stratégie · Version</span>
           <span></span>
-          <span className="text-right">Score</span>
+          <span className="text-right">Risk-Score</span>
           <span className="text-right">PF</span>
           <span className="text-right">WR</span>
           <span className="text-right">RR</span>
@@ -454,7 +473,7 @@ function AssetRow({ lr, isBest }: AssetRowProps) {
       className={`grid items-center gap-1.5 py-1 pl-4 text-[11px] cursor-pointer hover:bg-surface-hover transition-colors ${
         isBest ? "" : "text-muted"
       }`}
-      style={{ gridTemplateColumns: "90px 1fr 50px 50px 50px 50px 45px 55px" }}
+      style={{ gridTemplateColumns: "90px 1fr 64px 50px 50px 50px 45px 55px" }}
     >
       <span className={`font-mono text-[10px] ${isBest ? "text-green-900 font-medium" : ""}`}>
         {lr.asset} · {lr.tf}
