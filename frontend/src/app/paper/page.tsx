@@ -73,12 +73,6 @@ const PAPER_STRATEGIES_MOCK: PaperStrategy[] = [
   },
 ];
 
-const MEDAL: Record<number, { label: string; color: string }> = {
-  1: { label: "1st", color: "text-yellow-400" },
-  2: { label: "2nd", color: "text-slate-400"  },
-  3: { label: "3rd", color: "text-orange-400" },
-};
-
 function StatusBadge({ status }: { status: PaperStrategy["status"] }) {
   // S62 Option D — Texte sec coloré (point + label, sans bordure ni padding)
   const config = {
@@ -706,10 +700,7 @@ export default function PaperTradePage() {
                 return (
                   <tr key={s.id} onClick={() => { window.location.href = `/strategy/${encodeURIComponent(s.id)}`; }} className={`border-b border-border/50 hover:bg-ink transition-colors group cursor-pointer ${(s as any).tradesToday > 0 ? "bg-green-50/30" : ""}`}>
                     <td className="px-4 py-3 text-center">
-                      {MEDAL[rank]
-                        ? <span className={`text-xs font-semibold tabular-nums ${MEDAL[rank].color}`}>{MEDAL[rank].label}</span>
-                        : <span className="text-muted text-xs tabular-nums">{rank}</span>
-                      }
+                      <span className="text-muted text-xs tabular-nums">{rank}</span>
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/strategy/${encodeURIComponent(s.id)}`} className="block">
@@ -744,14 +735,6 @@ export default function PaperTradePage() {
                               </span>
                             );
                           })()}
-                          {/* Badge Top PF (rank 1) */}
-                          {rank === 1 && (
-                            <span
-                              title="Meilleur Profit Factor (PF) de toutes les stratégies en paper trade. Classement basé sur PF Backtest ou PF Paper si disponible."
-                              className="text-[9px] font-semibold tracking-wide px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 border border-yellow-300 cursor-help">
-                              👑 TOP PF
-                            </span>
-                          )}
                           {/* Badge HIGH Tier */}
                           {(s.tier_davey === "HIGH" || s.tier_davey === "STATISTICALLY_ROBUST") && (
                             <span
