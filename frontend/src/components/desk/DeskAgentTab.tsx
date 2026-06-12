@@ -255,7 +255,7 @@ export default function DeskAgentTab() {
       <div>
         <div className="text-[13px] font-medium text-muted mb-2">Calls ({calls.length})</div>
         <div className="space-y-1.5">
-          {[...calls].reverse().map((c) => {
+          {[...calls].sort((a, b) => String(b.entry_ts || b.datetime || "").localeCompare(String(a.entry_ts || a.datetime || ""))).map((c) => {
             const isSel = c.id === selId;
             const win = c.review?.result === "win";
             const loss = c.review?.result === "loss";
