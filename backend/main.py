@@ -1952,127 +1952,105 @@ def paper_trader_live_averages():
     }
 
 
-@app.get("/paper-trader/pnl-breakdown")
-def paper_trader_pnl_breakdown(scope: str = "scalping"):
-    """PnL paper ventile par fenetre (24h/48h/7j/14j/30j) ET par session de marche.
+# ─── PnL breakdown (session × fenetre) — helpers partages ───────────────────
+import csv as _pnl_csv, json as _pnl_json, re as _pnl_re
+from datetime import datetime as _pnl_dt, timezone as _pnl_tz, timedelta as _pnl_td
+try:
+    from zoneinfo import ZoneInfo as _pnl_ZI
+    _PNL_SRC = _pnl_ZI("America/New_York")
+except Exception:
+    _PNL_SRC = _pnl_tz(_pnl_td(hours=-4))  # fallback EDT (fenetres <= 30j -> ete)
 
-    scope : scalping | swing | desk_agent.
-      - scalping/swing : agrege paper_trades.csv des runs stage=paper de ce style
-        (tf <= 30 min -> scalping, sinon swing).
-      - desk_agent : lit le journal Desk Agent (calls.json), trades reels routes.
+_PNL_WINDOWS = [("24h", 1), ("48h", 2), ("7j", 7), ("14j", 14), ("30j", 30)]
+# (nom, h_debut, h_fin) UTC ; couvre 0-24 sans trou ni recouvrement
+_PNL_SESSIONS = [("New York", 12, 21), ("London", 7, 12), ("Asia", 0, 7), ("Sydney", 21, 24)]
+_PNL_SESS_UTC = {"New York": "12:00-21:00", "London": "07:00-12:00",
+                 "Asia": "00:00-07:00", "Sydney": "21:00-00:00"}
 
-    Sessions contigues SANS chevauchement, par heure d'entree convertie en UTC :
-      Asia 00-07 | London 07-12 | New York 12-21 | Sydney 21-00.
-    Total des sessions = PnL global (chaque trade tombe dans une seule session).
 
-    Note tz : les data twelvedata US sont en heure de l'Est (ET). On localise donc
-    entry_ts en America/New_York puis on convertit en UTC. (Crypto/UTC = a gerer
-    par-instrument plus tard.)
-    """
-    import csv as _csv, json as _json, re as _re
-    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+def _pnl_session_of(hour):
+    for name, a, b in _PNL_SESSIONS:
+        if a <= hour < b:
+            return name
+    return "Sydney"
+
+
+def _pnl_to_utc(ts):
+    """entry_ts (souvent naive, en ET pour les data US) -> datetime UTC aware."""
     try:
-        from zoneinfo import ZoneInfo as _ZI
-        _SRC = _ZI("America/New_York")
+        d = _pnl_dt.fromisoformat(str(ts).replace("Z", "+00:00"))
     except Exception:
-        _SRC = _tz(_td(hours=-4))  # fallback EDT (fenetres <= 30j -> ete)
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=_PNL_SRC)
+    return d.astimezone(_pnl_tz.utc)
 
-    WINDOWS = [("24h", 1), ("48h", 2), ("7j", 7), ("14j", 14), ("30j", 30)]
-    # (nom, heure_debut, heure_fin) en UTC ; couvre 0-24 sans trou ni recouvrement
-    SESSIONS = [("New York", 12, 21), ("London", 7, 12), ("Asia", 0, 7), ("Sydney", 21, 24)]
-    SESS_UTC = {"New York": "12:00-21:00", "London": "07:00-12:00",
-                "Asia": "00:00-07:00", "Sydney": "21:00-00:00"}
 
-    def _session_of(hour: int) -> str:
-        for name, a, b in SESSIONS:
-            if a <= hour < b:
-                return name
-        return "Sydney"
+def _pnl_tf_minutes(tf):
+    m = _pnl_re.match(r"(\d+)\s*([mhd])", str(tf).lower().replace("min", "m"))
+    if not m:
+        return None
+    v, u = int(m.group(1)), m.group(2)
+    return v if u == "m" else v * 60 if u == "h" else v * 1440
 
-    def _to_utc(ts):
-        try:
-            d = _dt.fromisoformat(str(ts).replace("Z", "+00:00"))
-        except Exception:
-            return None
-        if d.tzinfo is None:
-            d = d.replace(tzinfo=_SRC)
-        return d.astimezone(_tz.utc)
 
-    def _tf_minutes(tf):
-        m = _re.match(r"(\d+)\s*([mhd])", str(tf).lower().replace("min", "m"))
-        if not m:
-            return None
-        v, u = int(m.group(1)), m.group(2)
-        return v if u == "m" else v * 60 if u == "h" else v * 1440
-
-    trades = []  # (entry_utc, pnl)
-    runs_dir = get_runs_dir()
-
-    if scope in ("scalping", "swing"):
-        if runs_dir.exists():
-            for d in runs_dir.iterdir():
-                if not d.is_dir():
-                    continue
-                mp, pt = d / "meta.json", d / "paper_trades.csv"
-                if not mp.exists() or not pt.exists():
-                    continue
+def _pnl_read_trades_csv(pt):
+    """Lit un paper_trades.csv -> liste de (entry_utc, pnl)."""
+    out = []
+    try:
+        with open(pt) as f:
+            for row in _pnl_csv.DictReader(f):
                 try:
-                    meta = _json.loads(mp.read_text())
+                    pv = float(row.get("pnl", ""))
                 except Exception:
                     continue
-                if meta.get("d033", {}).get("deployment_stage") != "paper":
+                if pv != pv:
                     continue
-                mn = _tf_minutes(meta.get("universe", {}).get("timeframe", ""))
-                style = "scalping" if (mn is not None and mn <= 30) else "swing"
-                if style != scope:
-                    continue
-                try:
-                    with open(pt) as f:
-                        for row in _csv.DictReader(f):
-                            try:
-                                pv = float(row.get("pnl", ""))
-                            except Exception:
-                                continue
-                            if pv != pv:
-                                continue
-                            eu = _to_utc(row.get("entry_ts"))
-                            if eu is not None:
-                                trades.append((eu, pv))
-                except Exception:
-                    pass
-    elif scope == "desk_agent":
-        journal = runs_dir.resolve().parent.parent / "results" / "desk_agent" / "calls.json"
-        if journal.exists():
-            try:
-                data = _json.loads(journal.read_text())
-            except Exception:
-                data = {"calls": []}
-            for c in data.get("calls", []):
-                rev = c.get("review", {}) or {}
-                pv = rev.get("pnl_usd")
-                if pv is None:
-                    continue
-                try:
-                    pv = float(pv)
-                except Exception:
-                    continue
-                eu = _to_utc(c.get("entry_ts"))
+                eu = _pnl_to_utc(row.get("entry_ts"))
                 if eu is not None:
-                    trades.append((eu, pv))
-    else:
-        raise HTTPException(status_code=400, detail="scope invalide (scalping|swing|desk_agent)")
+                    out.append((eu, pv))
+    except Exception:
+        pass
+    return out
 
-    now = _dt.now(_tz.utc)
+
+def _pnl_read_desk_calls(journal):
+    """Lit le journal Desk Agent (calls.json) -> liste de (entry_utc, pnl)."""
+    out = []
+    if not journal.exists():
+        return out
+    try:
+        data = _pnl_json.loads(journal.read_text())
+    except Exception:
+        return out
+    for c in data.get("calls", []):
+        pv = (c.get("review") or {}).get("pnl_usd")
+        if pv is None:
+            continue
+        try:
+            pv = float(pv)
+        except Exception:
+            continue
+        eu = _pnl_to_utc(c.get("entry_ts"))
+        if eu is not None:
+            out.append((eu, pv))
+    return out
+
+
+def _pnl_compute(scope_label, trades):
+    """Construit la matrice fenetre x session a partir d'une liste (entry_utc, pnl).
+    Sessions contigues sans chevauchement -> total des sessions = PnL global."""
+    now = _pnl_dt.now(_pnl_tz.utc)
 
     def _blank():
-        return {wl: {"pnl": 0.0, "trades": 0} for wl, _ in WINDOWS}
+        return {wl: {"pnl": 0.0, "trades": 0} for wl, _ in _PNL_WINDOWS}
 
     total = _blank()
-    sess = {name: _blank() for name, _, _ in SESSIONS}
+    sess = {name: _blank() for name, _, _ in _PNL_SESSIONS}
     for eu, pv in trades:
-        sname = _session_of(eu.hour)
-        for wl, days in WINDOWS:
-            if eu >= now - _td(days=days):
+        sname = _pnl_session_of(eu.hour)
+        for wl, days in _PNL_WINDOWS:
+            if eu >= now - _pnl_td(days=days):
                 total[wl]["pnl"] += pv
                 total[wl]["trades"] += 1
                 sess[sname][wl]["pnl"] += pv
@@ -2082,17 +2060,57 @@ def paper_trader_pnl_breakdown(scope: str = "scalping"):
         return {wl: {"pnl": round(c["pnl"], 2), "trades": c["trades"]} for wl, c in cells.items()}
 
     return {
-        "scope": scope,
+        "scope": scope_label,
         "now_utc": now.isoformat(),
         "source_tz": "America/New_York",
-        "windows": [wl for wl, _ in WINDOWS],
+        "windows": [wl for wl, _ in _PNL_WINDOWS],
         "total": _round(total),
         "sessions": [
-            {"name": name, "utc": SESS_UTC[name], "cells": _round(sess[name])}
-            for name, _, _ in SESSIONS
+            {"name": name, "utc": _PNL_SESS_UTC[name], "cells": _round(sess[name])}
+            for name, _, _ in _PNL_SESSIONS
         ],
         "n_trades_total": len(trades),
     }
 
+
+@app.get("/paper-trader/pnl-breakdown")
+def paper_trader_pnl_breakdown(scope: str = "scalping"):
+    """PnL paper ventile (24h/48h/7j/14j/30j x session). scope: scalping|swing|desk_agent."""
+    runs_dir = get_runs_dir()
+    trades = []
+    if scope in ("scalping", "swing"):
+        if runs_dir.exists():
+            for d in runs_dir.iterdir():
+                if not d.is_dir():
+                    continue
+                mp, pt = d / "meta.json", d / "paper_trades.csv"
+                if not mp.exists() or not pt.exists():
+                    continue
+                try:
+                    meta = _pnl_json.loads(mp.read_text())
+                except Exception:
+                    continue
+                if meta.get("d033", {}).get("deployment_stage") != "paper":
+                    continue
+                mn = _pnl_tf_minutes(meta.get("universe", {}).get("timeframe", ""))
+                style = "scalping" if (mn is not None and mn <= 30) else "swing"
+                if style != scope:
+                    continue
+                trades.extend(_pnl_read_trades_csv(pt))
+    elif scope == "desk_agent":
+        journal = runs_dir.resolve().parent.parent / "results" / "desk_agent" / "calls.json"
+        trades.extend(_pnl_read_desk_calls(journal))
+    else:
+        raise HTTPException(status_code=400, detail="scope invalide (scalping|swing|desk_agent)")
+    return _pnl_compute(scope, trades)
+
+
+@app.get("/runs/{run_id}/pnl-breakdown")
+def run_pnl_breakdown(run_id: str):
+    """PnL ventile (fenetre x session) pour UN run/strategie (son paper_trades.csv)."""
+    runs_dir = get_runs_dir()
+    pt = runs_dir / run_id / "paper_trades.csv"
+    trades = _pnl_read_trades_csv(pt) if pt.exists() else []
+    return _pnl_compute(run_id, trades)
 
 # ─── Pause / Resume global (S60) ────────────────────────────────────────────

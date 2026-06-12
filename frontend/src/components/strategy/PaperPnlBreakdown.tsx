@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { fetchPaperPnlBreakdown, type PaperPnlBreakdownData, type PnlScope, type PnlCell } from "@/lib/api";
+import { fetchPaperPnlBreakdown, fetchRunPnlBreakdown, type PaperPnlBreakdownData, type PnlScope, type PnlCell } from "@/lib/api";
 
 const WIN_LABEL: Record<string, string> = { "24h": "24 h", "48h": "48 h", "7j": "7 j", "14j": "14 j", "30j": "30 j" };
 const DOT: Record<string, string> = { "New York": "#185FA5", "London": "#534AB7", "Asia": "#888780", "Sydney": "#888780" };
@@ -12,15 +12,16 @@ function money(v: number): string {
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r).toLocaleString("fr-FR")} $`;
 }
 
-export default function PaperPnlBreakdown({ scope }: { scope: PnlScope }) {
+export default function PaperPnlBreakdown({ scope, runId }: { scope?: PnlScope; runId?: string }) {
   const [open, setOpen] = useState(true);
   const [data, setData] = useState<PaperPnlBreakdownData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || data || error) return;
-    fetchPaperPnlBreakdown(scope).then(setData).catch((e) => setError(e.message));
-  }, [open, data, error, scope]);
+    const p = runId ? fetchRunPnlBreakdown(runId) : fetchPaperPnlBreakdown(scope ?? "scalping");
+    p.then(setData).catch((e) => setError(e.message));
+  }, [open, data, error, scope, runId]);
 
   const windows = data?.windows ?? ["24h", "48h", "7j", "14j", "30j"];
 

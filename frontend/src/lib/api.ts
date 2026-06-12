@@ -83,6 +83,12 @@ export async function fetchPaperPnlBreakdown(scope: PnlScope): Promise<PaperPnlB
   return res.json();
 }
 
+export async function fetchRunPnlBreakdown(runId: string): Promise<PaperPnlBreakdownData> {
+  const res = await fetch(`${BASE}/runs/${encodeURIComponent(runId)}/pnl-breakdown`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchRunPnlBreakdown: ${res.status}`);
+  return res.json();
+}
+
 export async function postAiPrompt(runId: string, prompt: string): Promise<Response> {
   return fetch(`${BASE}/ai`, {
     method: "POST",

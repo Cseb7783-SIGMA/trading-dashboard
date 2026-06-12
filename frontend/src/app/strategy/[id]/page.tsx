@@ -16,6 +16,7 @@ import PriceChart from "@/components/strategy/PriceChart";
 import PineModal from "@/components/strategy/PineModal";
 import ActivateModal from "@/components/strategy/ActivateModal";
 import PaperLiveCard from "@/components/strategy/PaperLiveCard";
+import PaperPnlBreakdown from "@/components/strategy/PaperPnlBreakdown";
 import LiveChart from "@/components/strategy/LiveChart";
 import type { Destination } from "@/lib/api";
 
@@ -246,6 +247,7 @@ export default function StrategyPage() {
         {run.d033?.deployment_stage === "paper" && (
           <>
             <PaperLiveCard runId={decodeURIComponent(id)} instrument={run.universe?.instrument} />
+            <div className="mt-4"><PaperPnlBreakdown runId={decodeURIComponent(id)} /></div>
             <PaperTradeTable runId={decodeURIComponent(id)} />
             {run.universe?.instrument && run.universe?.timeframe && (
               <LiveChart symbol={run.universe.instrument} tf={run.universe.timeframe} runId={decodeURIComponent(id)} strategyName={run.strategy.name} />
