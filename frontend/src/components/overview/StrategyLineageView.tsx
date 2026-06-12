@@ -43,7 +43,7 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
   // Filters state
   const [styleFilter, setStyleFilter] = useState<StyleFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
-  const [stageFilter, setStageFilter] = useState<StageFilter>("paper");
+  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>("all");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all_time");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
