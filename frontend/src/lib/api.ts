@@ -65,6 +65,24 @@ export async function fetchPaperLiveAverages(): Promise<PaperLiveAveragesData> {
   return res.json();
 }
 
+export type PnlCell = { pnl: number; trades: number };
+export type PnlScope = "scalping" | "swing" | "desk_agent";
+export type PaperPnlBreakdownData = {
+  scope: PnlScope;
+  now_utc: string;
+  source_tz: string;
+  windows: string[];
+  total: Record<string, PnlCell>;
+  sessions: { name: string; utc: string; cells: Record<string, PnlCell> }[];
+  n_trades_total: number;
+};
+
+export async function fetchPaperPnlBreakdown(scope: PnlScope): Promise<PaperPnlBreakdownData> {
+  const res = await fetch(`${BASE}/paper-trader/pnl-breakdown?scope=${scope}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchPaperPnlBreakdown: ${res.status}`);
+  return res.json();
+}
+
 export async function postAiPrompt(runId: string, prompt: string): Promise<Response> {
   return fetch(`${BASE}/ai`, {
     method: "POST",

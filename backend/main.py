@@ -1952,4 +1952,147 @@ def paper_trader_live_averages():
     }
 
 
+@app.get("/paper-trader/pnl-breakdown")
+def paper_trader_pnl_breakdown(scope: str = "scalping"):
+    """PnL paper ventile par fenetre (24h/48h/7j/14j/30j) ET par session de marche.
+
+    scope : scalping | swing | desk_agent.
+      - scalping/swing : agrege paper_trades.csv des runs stage=paper de ce style
+        (tf <= 30 min -> scalping, sinon swing).
+      - desk_agent : lit le journal Desk Agent (calls.json), trades reels routes.
+
+    Sessions contigues SANS chevauchement, par heure d'entree convertie en UTC :
+      Asia 00-07 | London 07-12 | New York 12-21 | Sydney 21-00.
+    Total des sessions = PnL global (chaque trade tombe dans une seule session).
+
+    Note tz : les data twelvedata US sont en heure de l'Est (ET). On localise donc
+    entry_ts en America/New_York puis on convertit en UTC. (Crypto/UTC = a gerer
+    par-instrument plus tard.)
+    """
+    import csv as _csv, json as _json, re as _re
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        _SRC = _ZI("America/New_York")
+    except Exception:
+        _SRC = _tz(_td(hours=-4))  # fallback EDT (fenetres <= 30j -> ete)
+
+    WINDOWS = [("24h", 1), ("48h", 2), ("7j", 7), ("14j", 14), ("30j", 30)]
+    # (nom, heure_debut, heure_fin) en UTC ; couvre 0-24 sans trou ni recouvrement
+    SESSIONS = [("New York", 12, 21), ("London", 7, 12), ("Asia", 0, 7), ("Sydney", 21, 24)]
+    SESS_UTC = {"New York": "12:00-21:00", "London": "07:00-12:00",
+                "Asia": "00:00-07:00", "Sydney": "21:00-00:00"}
+
+    def _session_of(hour: int) -> str:
+        for name, a, b in SESSIONS:
+            if a <= hour < b:
+                return name
+        return "Sydney"
+
+    def _to_utc(ts):
+        try:
+            d = _dt.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except Exception:
+            return None
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=_SRC)
+        return d.astimezone(_tz.utc)
+
+    def _tf_minutes(tf):
+        m = _re.match(r"(\d+)\s*([mhd])", str(tf).lower().replace("min", "m"))
+        if not m:
+            return None
+        v, u = int(m.group(1)), m.group(2)
+        return v if u == "m" else v * 60 if u == "h" else v * 1440
+
+    trades = []  # (entry_utc, pnl)
+    runs_dir = get_runs_dir()
+
+    if scope in ("scalping", "swing"):
+        if runs_dir.exists():
+            for d in runs_dir.iterdir():
+                if not d.is_dir():
+                    continue
+                mp, pt = d / "meta.json", d / "paper_trades.csv"
+                if not mp.exists() or not pt.exists():
+                    continue
+                try:
+                    meta = _json.loads(mp.read_text())
+                except Exception:
+                    continue
+                if meta.get("d033", {}).get("deployment_stage") != "paper":
+                    continue
+                mn = _tf_minutes(meta.get("universe", {}).get("timeframe", ""))
+                style = "scalping" if (mn is not None and mn <= 30) else "swing"
+                if style != scope:
+                    continue
+                try:
+                    with open(pt) as f:
+                        for row in _csv.DictReader(f):
+                            try:
+                                pv = float(row.get("pnl", ""))
+                            except Exception:
+                                continue
+                            if pv != pv:
+                                continue
+                            eu = _to_utc(row.get("entry_ts"))
+                            if eu is not None:
+                                trades.append((eu, pv))
+                except Exception:
+                    pass
+    elif scope == "desk_agent":
+        journal = runs_dir.resolve().parent.parent / "results" / "desk_agent" / "calls.json"
+        if journal.exists():
+            try:
+                data = _json.loads(journal.read_text())
+            except Exception:
+                data = {"calls": []}
+            for c in data.get("calls", []):
+                rev = c.get("review", {}) or {}
+                pv = rev.get("pnl_usd")
+                if pv is None:
+                    continue
+                try:
+                    pv = float(pv)
+                except Exception:
+                    continue
+                eu = _to_utc(c.get("entry_ts"))
+                if eu is not None:
+                    trades.append((eu, pv))
+    else:
+        raise HTTPException(status_code=400, detail="scope invalide (scalping|swing|desk_agent)")
+
+    now = _dt.now(_tz.utc)
+
+    def _blank():
+        return {wl: {"pnl": 0.0, "trades": 0} for wl, _ in WINDOWS}
+
+    total = _blank()
+    sess = {name: _blank() for name, _, _ in SESSIONS}
+    for eu, pv in trades:
+        sname = _session_of(eu.hour)
+        for wl, days in WINDOWS:
+            if eu >= now - _td(days=days):
+                total[wl]["pnl"] += pv
+                total[wl]["trades"] += 1
+                sess[sname][wl]["pnl"] += pv
+                sess[sname][wl]["trades"] += 1
+
+    def _round(cells):
+        return {wl: {"pnl": round(c["pnl"], 2), "trades": c["trades"]} for wl, c in cells.items()}
+
+    return {
+        "scope": scope,
+        "now_utc": now.isoformat(),
+        "source_tz": "America/New_York",
+        "windows": [wl for wl, _ in WINDOWS],
+        "total": _round(total),
+        "sessions": [
+            {"name": name, "utc": SESS_UTC[name], "cells": _round(sess[name])}
+            for name, _, _ in SESSIONS
+        ],
+        "n_trades_total": len(trades),
+    }
+
+
 # ─── Pause / Resume global (S60) ────────────────────────────────────────────

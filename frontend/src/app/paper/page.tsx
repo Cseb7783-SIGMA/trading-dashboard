@@ -8,6 +8,7 @@ import type { Run } from "@/lib/types";
 import PaperPauseControl from "@/components/layout/PaperPauseControl";
 import DeskAgentTab from "@/components/desk/DeskAgentTab";
 import PaperAverages from "@/components/strategy/PaperAverages";
+import PaperPnlBreakdown from "@/components/strategy/PaperPnlBreakdown";
 
 type PaperStrategy = {
   id: string;
@@ -655,6 +656,8 @@ export default function PaperTradePage() {
           </button>
         )}
       </div>
+
+      <PaperPnlBreakdown key={tab} scope={tab} />
 
       {/* Table */}
       {filtered.length === 0 ? (
