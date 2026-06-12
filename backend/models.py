@@ -89,6 +89,7 @@ class RunSummary(BaseModel):
     d033: D033 = D033()
     kpis_by_period: dict = {}
     drift_status: str = "n/a"
+    signum_score: Optional[float] = None
 
 
 class Trade(BaseModel):

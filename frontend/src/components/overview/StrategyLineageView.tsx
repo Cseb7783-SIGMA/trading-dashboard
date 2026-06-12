@@ -260,9 +260,10 @@ export default function StrategyLineageView({ runs, onRefresh, refreshing, lastR
         />
 
         {/* Column header */}
-        <div className="grid items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wider text-muted" style={{ gridTemplateColumns: "90px 1fr 50px 50px 50px 45px 55px" }}>
+        <div className="grid items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wider text-muted" style={{ gridTemplateColumns: "90px 1fr 50px 50px 50px 50px 45px 55px" }}>
           <span>Stratégie · Version</span>
           <span></span>
+          <span className="text-right">Score</span>
           <span className="text-right">PF</span>
           <span className="text-right">WR</span>
           <span className="text-right">RR</span>
@@ -453,12 +454,13 @@ function AssetRow({ lr, isBest }: AssetRowProps) {
       className={`grid items-center gap-1.5 py-1 pl-4 text-[11px] cursor-pointer hover:bg-surface-hover transition-colors ${
         isBest ? "" : "text-muted"
       }`}
-      style={{ gridTemplateColumns: "90px 1fr 50px 50px 50px 45px 55px" }}
+      style={{ gridTemplateColumns: "90px 1fr 50px 50px 50px 50px 45px 55px" }}
     >
       <span className={`font-mono text-[10px] ${isBest ? "text-green-900 font-medium" : ""}`}>
         {lr.asset} · {lr.tf}
       </span>
       <span className={`text-[10px] ${isBest ? "text-green-700" : ""}`}>{lr.asset_label}</span>
+      <span className="text-right font-medium" style={{ color: "#185FA5" }}>{run.signum_score != null ? run.signum_score.toFixed(2) : "—"}</span>
       <span className={`text-right ${isBest ? "text-green-900 font-medium" : ""}`}>PF {pf.toFixed(2)}</span>
       <span className="text-right">{wr.toFixed(1)}%</span>
       <span className="text-right text-[9px]">1:{rr.toFixed(2)}</span>

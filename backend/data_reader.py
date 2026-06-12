@@ -240,6 +240,7 @@ def _parse_run(run_dir: Path) -> Optional[RunSummary]:
         d033=_parse_d033(meta),
         kpis_by_period=meta.get("kpis_by_period", {}),
         drift_status=meta.get("drift_status", "n/a"),
+        signum_score=(meta.get("signum_score") or {}).get("score"),
         )
     except Exception:
         return None

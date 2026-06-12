@@ -78,6 +78,7 @@ export interface Run {
   d033?: D033;
   kpis_by_period?: KPIsByPeriod;
   drift_status?: "stable" | "warning" | "critical" | "n/a";
+  signum_score?: number | null;
 }
 
 export interface Trade {
