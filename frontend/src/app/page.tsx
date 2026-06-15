@@ -1,18 +1,31 @@
 "use client";
 import { FolderOpen, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { useRuns } from "@/hooks/useRuns";
-import KPISummary from "@/components/overview/KPISummary";
-import Leaderboard from "@/components/overview/Leaderboard";
 import StrategyLineageView from "@/components/overview/StrategyLineageView";
-import DiscoveriesSection from "@/components/overview/DiscoveriesSection";
 import MultiPeriodSummary from "@/components/overview/MultiPeriodSummary";
 import AccordionSection from "@/components/ui/AccordionSection";
+import StrategicReflectionBanner from "@/components/overview/StrategicReflectionBanner";
+import AssetCoverageBanner from "@/components/overview/AssetCoverageBanner";
+import DiscoveriesSection from "@/components/overview/DiscoveriesSection";
 
 export default function OverviewPage() {
   const { runs, loading, refreshing, refresh, lastRefreshAt, streamStatus, toast } = useRuns();
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-semibold text-text">Laboratoire</h1>
+          <p className="text-xs text-muted mt-0.5">Évolution des stratégies — toutes catégories</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted">
+          {streamStatus === "connected"  && <Wifi size={13} className="text-green-400" aria-label="Stream connecté" />}
+          {streamStatus === "connecting" && <Loader2 size={13} className="text-orange animate-spin" aria-label="Reconnexion en cours" />}
+          {streamStatus === "disconnected" && <WifiOff size={13} className="text-red-400" aria-label="Stream hors ligne" />}
+          <span>{streamStatus === "connected" ? "Stream actif" : streamStatus === "connecting" ? "Reconnexion…" : "Stream hors ligne"}</span>
+        </div>
+      </div>
+
       <div className="mb-4 p-3 rounded-lg bg-blue/5 border border-blue/20 text-xs">
         <div className="flex items-start gap-2">
           <span className="text-base">🧪</span>
@@ -27,19 +40,6 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-semibold text-text">Laboratoire</h1>
-          <p className="text-xs text-muted mt-0.5">Évolution des stratégies — toutes catégories</p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted">
-          {streamStatus === "connected"  && <Wifi size={13} className="text-green-400" aria-label="Stream connecté" />}
-          {streamStatus === "connecting" && <Loader2 size={13} className="text-orange animate-spin" aria-label="Reconnexion en cours" />}
-          {streamStatus === "disconnected" && <WifiOff size={13} className="text-red-400" aria-label="Stream hors ligne" />}
-          <span>{streamStatus === "connected" ? "Stream actif" : streamStatus === "connecting" ? "Reconnexion…" : "Stream hors ligne"}</span>
-        </div>
-      </div>
-
       {loading ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -57,14 +57,8 @@ export default function OverviewPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          <AccordionSection
-            id="kpi-summary"
-            title="KPIs principaux"
-            subtitle="Runs analysés · Robustes · Best PF · Drift stable"
-            defaultOpen={true}
-          >
-            <KPISummary runs={runs} />
-          </AccordionSection>
+          <AssetCoverageBanner />
+          <StrategicReflectionBanner compact={true} />
 
           <AccordionSection
             id="multi-period"
@@ -93,14 +87,6 @@ export default function OverviewPage() {
             <StrategyLineageView runs={runs} onRefresh={refresh} refreshing={refreshing} lastRefreshAt={lastRefreshAt} />
           </AccordionSection>
 
-          <AccordionSection
-            id="leaderboard"
-            title="Leaderboard classique (legacy)"
-            subtitle="Vue plate par tier Davey (D-033) · filtres Scalping/Swing/Toutes"
-            defaultOpen={false}
-          >
-            <Leaderboard runs={runs} />
-          </AccordionSection>
         </div>
       )}
 
