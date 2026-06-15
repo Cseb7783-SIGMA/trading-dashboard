@@ -4,11 +4,12 @@ import { useRuns } from "@/hooks/useRuns";
 import KPISummary from "@/components/overview/KPISummary";
 import Leaderboard from "@/components/overview/Leaderboard";
 import StrategyLineageView from "@/components/overview/StrategyLineageView";
+import DiscoveriesSection from "@/components/overview/DiscoveriesSection";
 import MultiPeriodSummary from "@/components/overview/MultiPeriodSummary";
 import AccordionSection from "@/components/ui/AccordionSection";
 
 export default function OverviewPage() {
-  const { runs, loading, streamStatus, toast } = useRuns();
+  const { runs, loading, refreshing, refresh, lastRefreshAt, streamStatus, toast } = useRuns();
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -67,7 +68,7 @@ export default function OverviewPage() {
 
           <AccordionSection
             id="multi-period"
-            title="Résumé multi-périodes"
+            title="Performance par période"
             subtitle="PF / WR par fenêtre temporelle (1m → all-time) · drift detection"
             defaultOpen={false}
           >
@@ -75,12 +76,21 @@ export default function OverviewPage() {
           </AccordionSection>
 
           <AccordionSection
+            id="discoveries"
+            title="🔍 Découvertes du scanner"
+            subtitle="Hypothèses trouvées automatiquement (Evolver) — non validées · à lancer en paper pour les prouver"
+            defaultOpen={true}
+          >
+            <DiscoveriesSection />
+          </AccordionSection>
+
+          <AccordionSection
             id="lineage"
-            title="Stratégies par famille (S61)"
+            title="Stratégies par famille"
             subtitle="Vue hiérarchique : Stratégie → Version → Asset · TF — avec filtres Style/Tier/Stage/Catégorie"
             defaultOpen={true}
           >
-            <StrategyLineageView runs={runs} />
+            <StrategyLineageView runs={runs} onRefresh={refresh} refreshing={refreshing} lastRefreshAt={lastRefreshAt} />
           </AccordionSection>
 
           <AccordionSection

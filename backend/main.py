@@ -2180,4 +2180,48 @@ def run_pnl_breakdown(run_id: str):
     trades = _pnl_read_trades_csv(pt) if pt.exists() else []
     return _pnl_compute(run_id, trades)
 
+
+@app.get("/lab/discoveries")
+def lab_discoveries():
+    """Découvertes du scanner Evolver — runs auto-ingérés (auto_evolve*/auto_cuisine*),
+    avec STAGE (deployment_stage) + KPIs, pour la section dédiée du Lab. Récents d'abord."""
+    import json as _json
+    runs_dir = get_runs_dir()
+    out = []
+    if runs_dir.exists():
+        for d in runs_dir.iterdir():
+            if not d.is_dir() or not d.name.startswith(("auto_evolve", "auto_cuisine")):
+                continue
+            mp, kp = d / "meta.json", d / "kpis.json"
+            if not mp.exists():
+                continue
+            try:
+                meta = _json.loads(mp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            k = {}
+            if kp.exists():
+                try:
+                    k = _json.loads(kp.read_text(encoding="utf-8"))
+                except Exception:
+                    k = {}
+            d033 = meta.get("d033", {}) or {}
+            spec = meta.get("evolve_spec", {}) or {}
+            ratios = k.get("ratios", {}) or {}
+            out.append({
+                "run_id": d.name,
+                "strategy": meta.get("strategy", {}).get("name", d.name),
+                "instrument": meta.get("universe", {}).get("instrument", "?"),
+                "timeframe": meta.get("universe", {}).get("timeframe", "?"),
+                "regime": d033.get("route_regime") or spec.get("regime"),
+                "pf": ratios.get("profit_factor"),
+                "trades": (k.get("trade_counts", {}) or {}).get("total"),
+                "win_rate": ratios.get("win_rate"),
+                "risk_score": (meta.get("signum_score") or {}).get("score"),
+                "stage": d033.get("deployment_stage", "rd"),
+                "found_at": d033.get("computed_at") or meta.get("created_at"),
+            })
+    out.sort(key=lambda r: str(r.get("found_at") or ""), reverse=True)
+    return {"discoveries": out, "count": len(out)}
+
 # ─── Pause / Resume global (S60) ────────────────────────────────────────────

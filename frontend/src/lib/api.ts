@@ -137,6 +137,17 @@ export async function deleteSuggestion(runId: string, suggestionId: string): Pro
 }
 
 
+export type Discovery = {
+  run_id: string; strategy: string; instrument: string; timeframe: string;
+  regime: string | null; pf: number | null; trades: number | null;
+  win_rate: number | null; risk_score: number | null; stage: string; found_at: string | null;
+};
+export async function fetchDiscoveries(): Promise<{ discoveries: Discovery[]; count: number }> {
+  const res = await fetch(`${BASE}/lab/discoveries`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`fetchDiscoveries: ${res.status}`);
+  return res.json();
+}
+
 export type Destination = "rd" | "paper" | "broker" | "propfirm" | "challenge_z";
 
 export interface ActivateResponse {
