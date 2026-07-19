@@ -1,0 +1,13 @@
+export function isReportFile(name: unknown): boolean;
+export function dateLabel(name: unknown): string;
+export function sortReportsDesc(names: unknown): string[];
+export function mostRecent(names: unknown): string | null;
+export function latestDateFromMarkdown(md: unknown): string | null;
+export function resolveCurrent(names: unknown, latestMd: unknown): string | null;
+export function parseConfigs(md: unknown): { on: number; off: number } | null;
+export type ConfigPoint = { date: string; on: number | null; off: number | null; available: boolean };
+export function buildConfigSeries(entries: unknown): ConfigPoint[];
+export function seriesMax(series: unknown): number;
+export function reportForDate(date: unknown, names: unknown): string | null;
+export function isSelectedDate(date: unknown, sel: unknown): boolean;
+export function pointLabel(point: unknown): string;
