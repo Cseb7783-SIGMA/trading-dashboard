@@ -1,0 +1,58 @@
+name: v2-smoke-externe
+
+# Contrôle EXTERNE de la V2 publique, exécuté par GitHub Actions (JAMAIS le VPS).
+# Déclenchement MANUEL uniquement pour l'instant (workflow_dispatch). AUCUNE cédule.
+# Lecture seule : ne corrige, ne republie, ne relance rien. Secrets = CF_ACCESS_CLIENT_ID/SECRET
+# (environnement protégé « smoke-external »), jamais imprimés ni archivés.
+on:
+  workflow_dispatch: {}   # déclenchement manuel uniquement, AUCUN paramètre libre
+
+permissions:
+  contents: read
+
+# Cible FIGÉE dans le code : les secrets Cloudflare ne peuvent partir que vers ce domaine.
+env:
+  SMOKE_TARGET: "https://lab-trading.labuena.ca"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: smoke-external      # secrets scellés à cet environnement (reviewers possibles)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer Playwright (chromium)
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm i -D @playwright/test@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Smoke externe V2 (lecture seule)
+        env:
+          SMOKE_BASE: ${{ env.SMOKE_TARGET }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SMOKE_STATUS: smoke_status.json
+          SMOKE_HISTORY: smoke_history.jsonl
+        run: node .github/smoke/v2_smoke.js   # exit != 0 si ANOMALY -> le job échoue
+
+      - name: Résumé du contrôle (sans données sensibles)
+        if: always()
+        run: |
+          if [ -f smoke_status.json ]; then
+            node -e 'const s=require("./smoke_status.json");let o="### Smoke V2 externe — "+s.overall+"\n\n- base: "+s.base+"\n- token: "+s.cf_token_present+"\n\n";for(const c of s.checks)o+="- ["+c.id+"] "+c.status+" "+c.name+"\n";require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY,o)'
+          else
+            echo "smoke_status.json absent (échec d'exécution)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Archiver le statut (aucun secret ; PASS/ANOMALY + checks)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-status
+          path: smoke_status.json
+          if-no-files-found: warn
